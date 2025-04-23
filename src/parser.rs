@@ -18,8 +18,8 @@ static RE_UNITS: Lazy<Regex> = lazy_regex!(r"%MO(.*)\*%");
 static RE_COMMENT: Lazy<Regex> = lazy_regex!(r"G04 (.*)\*");
 static RE_FORMAT_SPEC: Lazy<Regex> = lazy_regex!(r"%FSLAX(.*)Y(.*)\*%");
 static RE_APERTURE: Lazy<Regex> = lazy_regex!(r"%ADD([0-9]+)([A-Z]),(.*)\*%");
-static RE_INTERPOLATION: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?I?(-?[0-9]+)?J?(-?[0-9]+)?D01\*");
-static RE_MOVE_OR_FLASH: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?D0[2-3]*");
+static RE_INTERPOLATION: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?I?(-?[0-9]+)?J?(-?[0-9]+)?D(0)?1\*");
+static RE_MOVE_OR_FLASH: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?D(0)?[2-3]*");
 static RE_IMAGE_NAME: Lazy<Regex> = lazy_regex!(r"%IN(.*)\*%");
 static RE_IMAGE_POLARITY: Lazy<Regex> = lazy_regex!(r"%IP(.*)\*%");
 // TODO: handle escaped characters for attributes

@@ -1,6 +1,4 @@
-use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, Circle,
-     Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute,
-    Part, FileFunction, FilePolarity, StepAndRepeat};
+use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, Coordinates};
 use::std::collections::HashMap;
 use gerber_parser::error::{GerberParserErrorWithContext, };
 use gerber_parser::parser::{parse_gerber, coordinates_from_gerber, coordinates_offset_from_gerber};
@@ -521,4 +519,50 @@ fn coordinates_not_within_format() {
 
     let guy = parse_gerber(reader);
     assert!(guy.get_errors().is_empty());
+}
+
+
+#[test]
+// Test the D* statements, diptrace exports gerber files without the leading `0` on the `D0*` commands. 
+fn diptrace_Dxx_statements() {
+    let reader = utils::gerber_to_reader(r#"
+    %TF.GenerationSoftware,Novarm,DipTrace,4.3.0.6*%
+    %TF.CreationDate,2025-04-22T21:52:19+00:00*%
+    %FSLAX35Y35*%
+    %MOMM*%
+    %TF.FileFunction,Copper,L1,Top*%
+    %TF.Part,Single*%
+    
+    G37*
+    G36*
+    X2928500Y1670000D2*
+    X2998500D1*
+    Y1530000D1*
+    G37*
+    M02*
+
+    "#);
+
+    // when
+    let result = parse_gerber(reader).commands;
+    
+    // then
+    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| match cmd {
+            Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Move(_))))) => true,
+            Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(_, _))))) => true,
+            _ => false}
+        ).collect()};
+    println!("{:?}", result);
+    
+    let filtered_commands = filter_commands(result);
+
+    let fs =  CoordinateFormat::new(3,5);
+    
+
+    assert_eq!(filtered_commands, vec![
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Move(coordinates_from_gerber(2928500, 1670000, fs)))))),
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(coordinates_from_gerber(2998500, 1670000, fs), None))))),
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(coordinates_from_gerber(2998500, 1530000, fs), None))))),
+    ]);
 }
