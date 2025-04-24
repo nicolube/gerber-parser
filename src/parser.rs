@@ -1,10 +1,6 @@
-use std::io::{Read, BufReader, BufRead};
+use std::io::{Read, BufReader, BufRead, Lines};
 
-use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat,
-                   Aperture, Circle, Rectangular, Polygon, MCode, DCode, Polarity,
-                   InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, 
-                   CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, 
-                   FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat};
+use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, MCode, DCode, Polarity, InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat, MacroDecimal, OutlinePrimitive};
 use regex::Regex;
 use std::str::Chars;
 use crate::error::GerberParserError;
@@ -27,23 +23,59 @@ static RE_ATTRIBUTES: Lazy<Regex> = lazy_regex!(r"%T[A-Z].([A-Z]+?),?");
 static RE_STEP_REPEAT: Lazy<Regex> = lazy_regex!(r"%SRX([0-9]+)Y([0-9]+)I(\d+\.?\d*)J(\d+\.?\d*)\*%");
 
 
-/// Parse a gerber string (in BufReader) to a GerberDoc
+struct ParserContext<T: Read> {
+    line_number: usize,
+    lines: Lines<BufReader<T>>,
+}
+
+impl<T: Read> ParserContext<T> {
+    pub fn new(lines: Lines<BufReader<T>>) -> ParserContext<T> {
+        ParserContext {
+            line_number: 0,
+            lines,
+        }
+    }
+
+    pub fn next(&mut self) -> Option<Result<String, GerberParserError>> {
+        let line = self.lines.next();
+        if line.is_some() {
+            self.line_number += 1;
+        }
+        line
+            .map(|result|{
+                result.map_err(|e|GerberParserError::IoError(format!("IO error on line: {}", self.line_number).to_string()))
+            })
+    }
+}
+
+// TODO change the API so it doesn't panic on IO errors, i.e. replace this with `parse_gerber_inner`
+pub fn parse_gerber<T: Read>(reader: BufReader<T>) -> GerberDoc {
+    parse_gerber_inner(reader).unwrap()
+}
+
+// Parse a gerber string (in BufReader) to a GerberDoc
 ///
 /// Take the contents of a Gerber (.gbr) file and parse it to a GerberDoc struct. The parsing does
 /// some semantic checking, but is certainly not exhaustive - so don't rely on it to check if
 /// your Gerber file is valid according to the spec. Some of the parsing steps are greedy - they may
 /// match something unexpected (rather than panicking) if there is a typo/fault in your file.
-pub fn parse_gerber<T: Read>(reader: BufReader<T>) -> GerberDoc {
+fn parse_gerber_inner<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, GerberParserError> {
     let mut gerber_doc = GerberDoc::new();
     // The gerber spec allows omission of X or Y statements in D01/2/3 commands, where the omitted
     // coordinate is to be taken as whatever was used in the previous coordinate-using command
     // By default the 'last coordinate' can be taken to be (0,0)
     let mut last_coords = (0i64,0i64);
-    
 
-    for (line_num_indexed_from_0, line) in reader.lines().enumerate() {
-        let line_number = line_num_indexed_from_0 + 1;
-        let raw_line = line.expect(&format!("IO Error reading line {}", line_num_indexed_from_0)); 
+    let mut parser_context = ParserContext::new(reader.lines());
+
+    loop {
+        let Some(line_result) = parser_context.next() else {
+            break
+        };
+        
+        let line_number = parser_context.line_number;
+        
+        let raw_line = line_result?;
         // TODO combine this with line above
         let line = raw_line.trim();
 
@@ -51,7 +83,7 @@ pub fn parse_gerber<T: Read>(reader: BufReader<T>) -> GerberDoc {
         //log::debug!("{}. {}", index + 1, &line);
         
         if !line.is_empty() {
-            let line_result = match parse_line(line, &mut gerber_doc, &mut last_coords) {
+            let line_result = match parse_line(line, &mut gerber_doc, &mut last_coords, &mut parser_context) {
                 Ok(command) => {
                     log::debug!("Found command: {:?}", command);
                     Ok(command)
@@ -76,13 +108,14 @@ pub fn parse_gerber<T: Read>(reader: BufReader<T>) -> GerberDoc {
             }
         }
     }
-    return gerber_doc
+    return Ok(gerber_doc)
 }
 
 
-fn parse_line(line: &str, 
-              gerber_doc: &mut GerberDoc, 
-              last_coords: &mut (i64,i64)
+fn parse_line<T: Read>(line: &str,
+              gerber_doc: &mut GerberDoc,
+              last_coords: &mut (i64,i64),
+              parser_context: &mut ParserContext<T>
 ) -> Result<Command, GerberParserError> {
     let mut linechars = line.chars();
 
@@ -159,7 +192,14 @@ fn parse_line(line: &str,
                             Err(err) => Err(err)
                         }
                     }, 
-                    'M' => Err(GerberParserError::UnsupportedCommand {}), // AM
+                    'M' => {
+                        match parse_aperture_macro_definition(line, parser_context, &gerber_doc) {
+                            Ok(macro_def) => {
+                                Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(macro_def)))
+                            },
+                            Err(err) => Err(err)
+                        }
+                    }, // AM
                     _ => Err(GerberParserError::UnknownCommand {})
                 },
                 'L' => match linechars.next().ok_or(GerberParserError::UnknownCommand{})? {
@@ -266,6 +306,89 @@ fn parse_image_name(line: &str, gerber_doc: &GerberDoc) -> Result<String, Gerber
     }
 }
 
+/// Safety: the method should only be called if the line starts with %AM
+fn parse_aperture_macro_definition<T: Read>(line: &str, parser_context: &mut ParserContext<T>, gerber_doc: &GerberDoc) -> Result<ApertureMacro, GerberParserError> {
+    if line.starts_with("%AM") && line.ends_with("*") {
+        // Extract macro name
+        let name = line[3..line.len()-1].to_string();
+        let mut macro_def = ApertureMacro::new(name);
+
+        // Read and parse the macro content lines until we find the end marker ("%")
+        while let Some(content_line) = parser_context.next() {
+            let content_line = content_line?;
+            if content_line.trim().ends_with("%") {
+                // End of macro definition
+                break;
+            }
+
+            // Split the line into comma-separated values
+            let values: Vec<&str> = content_line.trim().trim_end_matches('*').split(',').collect();
+
+            if values.is_empty() {
+                continue; // Skip empty lines
+            }
+
+            // Parse outline primitive (type 4)
+            // TODO would be nice to have constants for the values in gerber-types. e.g. const APERTURE_MACRO_TYPE_OUTLINE: u8 = 4;
+            if values[0] == "4" {
+                if values.len() < 3 {
+                    return Err(GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: content_line
+                    });
+                }
+
+                // Parse exposure and number of points
+                let exposure = values[1].trim() == "1";
+                let num_points = values[2].trim().parse::<usize>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: content_line
+                    })?;
+
+                // Collect points from subsequent lines
+                let mut points = Vec::new();
+                // `num_points` is actually one fewer than the number of points in the macro definition, so we use `<=` here
+                while points.len() <= num_points {
+                    if let Some(point_line) = parser_context.next() {
+                        let point_line = point_line?;
+                        let coords: Vec<&str> = point_line.trim().trim_end_matches('*').split(',').collect();
+                        if coords.len() >= 2 {
+                            let x = coords[0].trim().parse::<f64>().map_err(|_|
+                                GerberParserError::ApertureDefinitionParseFailed {
+                                    aperture_definition_str: point_line.clone()
+                                })?;
+                            let y = coords[1].trim().parse::<f64>().map_err(|_|
+                                GerberParserError::ApertureDefinitionParseFailed {
+                                    aperture_definition_str: point_line.clone()
+                                })?;
+                            points.push((MacroDecimal::Value(x), MacroDecimal::Value(y)));
+                        }
+                    }
+                }
+
+                // Parse rotation angle from the last line
+                if let Some(angle_line) = parser_context.next() {
+                    let angle_line = angle_line?;
+                    let angle = angle_line.trim().trim_end_matches('*').parse::<f64>().unwrap_or(0.0);
+
+                    let outline = OutlinePrimitive {
+                        exposure,
+                        points,
+                        angle: MacroDecimal::Value(angle),
+                    };
+
+                    macro_def.add_content_mut(outline);
+                }
+            }
+        }
+
+
+        Ok(macro_def)
+    } else {
+        Err(GerberParserError::ApertureDefinitionParseFailed {
+            aperture_definition_str: line[3..].to_string()
+        })
+    }
+}
 
 /// parse a Gerber unit statement (e.g. '%MOMM*%')
 fn parse_units(line: &str, gerber_doc: &GerberDoc) -> Result<Unit, GerberParserError> {

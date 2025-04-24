@@ -1,4 +1,4 @@
-use gerber_types::{Unit, CoordinateFormat, Aperture, Command, ExtendedCode, ApertureDefinition};
+use gerber_types::{Unit, CoordinateFormat, Aperture, Command, ExtendedCode, ApertureDefinition, ApertureMacro};
 use::std::collections::HashMap;
 use std::fmt;
 use std::iter::repeat;
@@ -16,7 +16,7 @@ pub struct GerberDoc {
     // Anything else, draw commands, comments, attributes
     pub commands: Vec<Result<Command, GerberParserErrorWithContext>>,
     /// Image Name, 8.1.3. Deprecated, but still used by fusion 360.
-    pub image_name: Option<String>
+    pub image_name: Option<String>,
 }
 
 impl GerberDoc {

@@ -1,4 +1,4 @@
-use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, Coordinates};
+use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, Coordinates, MacroContent, PolygonPrimitive, OutlinePrimitive, MacroDecimal};
 use::std::collections::HashMap;
 use gerber_parser::error::{GerberParserErrorWithContext, };
 use gerber_parser::parser::{parse_gerber, coordinates_from_gerber, coordinates_offset_from_gerber};
@@ -556,13 +556,69 @@ fn diptrace_Dxx_statements() {
     println!("{:?}", result);
     
     let filtered_commands = filter_commands(result);
-
     let fs =  CoordinateFormat::new(3,5);
-    
 
     assert_eq!(filtered_commands, vec![
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Move(coordinates_from_gerber(2928500, 1670000, fs)))))),
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(coordinates_from_gerber(2998500, 1670000, fs), None))))),
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(coordinates_from_gerber(2998500, 1530000, fs), None))))),
     ]);
+}
+
+// See gerber spec 2021-02, section 4.5
+#[test]
+fn test_outline_macro_definition() {
+    // given
+    let reader = utils::gerber_to_reader(r#"
+    %TF.GenerationSoftware,Novarm,DipTrace,4.3.0.6*%
+    %TF.CreationDate,2025-04-24T12:32:15+00:00*%
+    %FSLAX35Y35*%
+    %MOMM*%
+    %TF.FileFunction,Copper,L1,Top*%
+    %TF.Part,Single*%
+    %AMOUTLINE0*
+    4,1,5,
+    -0.40659,0.19445,
+    -0.26517,0.33588,
+    -0.12374,0.33588,
+    0.40659,-0.19445,
+    0.19445,-0.40659,
+    -0.40659,0.19445,
+    0*%
+    "#);
+
+    // and
+    let expected_macro: ApertureMacro = ApertureMacro {
+        name: "OUTLINE0".to_string(),
+        content: vec![MacroContent::Outline(OutlinePrimitive {
+            exposure: true,  // 1 indicates exposure on
+            points: vec![
+                (MacroDecimal::Value(-0.40659), MacroDecimal::Value(0.19445)),
+                (MacroDecimal::Value(-0.26517), MacroDecimal::Value(0.33588)),
+                (MacroDecimal::Value(-0.12374), MacroDecimal::Value(0.33588)),
+                (MacroDecimal::Value(0.40659), MacroDecimal::Value(-0.19445)),
+                (MacroDecimal::Value(0.19445), MacroDecimal::Value(-0.40659)),
+                (MacroDecimal::Value(-0.40659), MacroDecimal::Value(0.19445)),
+            ],
+            angle: MacroDecimal::Value(0.0),
+        })],
+    };
+
+    // when
+    let result = parse_gerber(reader).commands;
+
+    // then
+    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| match cmd {
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) => true,
+            _ => false}
+        ).collect()};
+    println!("{:?}", result);
+
+    let filtered_commands = filter_commands(result);
+
+    assert_eq!(filtered_commands, vec![
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(expected_macro))),
+    ]);
+
 }

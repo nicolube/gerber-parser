@@ -46,6 +46,10 @@ pub enum GerberParserError {
     ApertureCodeParseFailed{
         aperture_code_str: String,
     },
+    #[error("tried to parse '{aperture_definition_str}' as an aperture definition but failed.")]
+    ApertureDefinitionParseFailed{
+        aperture_definition_str: String,
+    },
     #[error("tried to parse the definition of aperture '{aperture_code}' but failed.")]
     ParseApertureDefinitionBodyError{
         aperture_code: i32,
@@ -103,7 +107,9 @@ pub enum GerberParserError {
     but found {number_str} which could not be parsed as an f64.")]
     DrillToleranceParseNumError{
         number_str: String,
-    }
+    },
+    #[error("IO error occurred: {0}")]
+    IoError(String),
 }
 
 
