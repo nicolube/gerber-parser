@@ -43,7 +43,7 @@ impl<T: Read> ParserContext<T> {
         }
         line
             .map(|result|{
-                result.map_err(|e|GerberParserError::IoError(format!("IO error on line: {}", self.line_number).to_string()))
+                result.map_err(|e|GerberParserError::IoError(format!("IO error on line: {}, error: {}", self.line_number, e).to_string()))
             })
     }
 }
