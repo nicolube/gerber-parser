@@ -16,9 +16,10 @@ pub enum GerberParserError {
         regex: Regex,
     },
     #[error("Command was uniquely identified, and matched expected regex, \
-    but did not contain the expected capture(s).\nRegex: {regex}.")]
+    but did not contain the expected capture(s).\nRegex: {regex}. capture index: {capture_index}")]
     MissingRegexCapture{
         regex: Regex,
+        capture_index: usize,
     },
     #[error("After gerber doc was already assigned a name, another name command was found.")]
     TriedToSetImageNameTwice{},

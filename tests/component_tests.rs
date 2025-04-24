@@ -1,4 +1,4 @@
-use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, Coordinates, MacroContent, PolygonPrimitive, OutlinePrimitive, MacroDecimal};
+use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, Coordinates, MacroContent, PolygonPrimitive, OutlinePrimitive, MacroDecimal, ApertureDefinition};
 use::std::collections::HashMap;
 use gerber_parser::error::{GerberParserErrorWithContext, };
 use gerber_parser::parser::{parse_gerber, coordinates_from_gerber, coordinates_offset_from_gerber};
@@ -318,7 +318,13 @@ fn aperture_definitions() {
     M02*        
     ");
 
-    assert_eq!(parse_gerber(reader).apertures,  HashMap::from([
+    // when
+    let doc = parse_gerber(reader);
+    println!("{:?}", doc.commands);
+    let aperture_definitions = doc.apertures;
+    
+    // then
+    assert_eq!(aperture_definitions,  HashMap::from([
         (999, Aperture::Circle(Circle {diameter: 0.01, hole_diameter: None})),
         (22, Aperture::Rectangle(Rectangular{x: 0.01,y: 0.15,hole_diameter: None})),
         (23, Aperture::Obround(Rectangular{x: 0.01,y: 0.15,hole_diameter: None})),
@@ -567,7 +573,7 @@ fn diptrace_Dxx_statements() {
 
 // See gerber spec 2021-02, section 4.5
 #[test]
-fn test_outline_macro_definition() {
+fn test_outline_macro_and_aperture_definition() {
     // given
     let reader = utils::gerber_to_reader(r#"
     %TF.GenerationSoftware,Novarm,DipTrace,4.3.0.6*%
@@ -585,9 +591,12 @@ fn test_outline_macro_definition() {
     0.19445,-0.40659,
     -0.40659,0.19445,
     0*%
+    %ADD17OUTLINE0*%
     "#);
-
-    // and
+    
+    // Note, it's important that the macro definition isn't the only command in the file because it's important that
+    // the macro parser finds the end of the macro definition correctly and that it doesn't consume additional lines.
+    
     let expected_macro: ApertureMacro = ApertureMacro {
         name: "OUTLINE0".to_string(),
         content: vec![MacroContent::Outline(OutlinePrimitive {
@@ -606,19 +615,23 @@ fn test_outline_macro_definition() {
 
     // when
     let result = parse_gerber(reader).commands;
+    println!("{:?}", result);
 
     // then
     let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
         cmds.into_iter().filter(|cmd| match cmd {
             Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) => true,
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))) => true,
             _ => false}
         ).collect()};
-    println!("{:?}", result);
 
     let filtered_commands = filter_commands(result);
 
     assert_eq!(filtered_commands, vec![
         Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(expected_macro))),
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(ApertureDefinition::new(
+            17,
+            Aperture::Other("OUTLINE0".to_string())
+        )))),
     ]);
-
 }
