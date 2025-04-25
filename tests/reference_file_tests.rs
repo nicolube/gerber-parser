@@ -61,7 +61,6 @@ M02*
 }
 
 #[test]
-#[ignore]
 fn polarities_and_apertures_to_rust() {
     let gbr_string = "%FSLAX36Y36*%
 %MOMM*%
