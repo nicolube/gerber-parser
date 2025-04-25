@@ -111,6 +111,12 @@ pub enum GerberParserError {
     },
     #[error("IO error occurred: {0}")]
     IoError(String),
+    #[error("Macro name is invalid.")]
+    InvalidMacroName,
+    #[error("Unsupported macro definition.")]
+    UnsupportedMacroDefinition,
+    #[error("Invalid macro definition. cause: '{0}'")]
+    InvalidMacroDefinition(String),
 }
 
 

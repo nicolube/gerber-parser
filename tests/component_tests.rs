@@ -635,3 +635,59 @@ fn test_outline_macro_and_aperture_definition() {
         )))),
     ]);
 }
+
+// See gerber spec 2021-02, section 4.5
+#[test]
+fn test_polygon_macro_and_aperture_definition() {
+    // given
+    let reader = utils::gerber_to_reader(r#"
+    %FSLAX36Y36*%
+    %MOMM*%
+    %AMDIAMOND*
+    5,1,4,0,0,1,0*%
+    %ADD10DIAMOND*%
+    %LPD*%
+    G75*
+    G54D10*
+    X0Y0D03*
+    X5000000Y0D03*
+    X2500000Y2500000D03*
+    M02*
+    "#);
+    
+    // Note, it's important that the macro definition isn't the only command in the file because it's important that
+    // the macro parser finds the end of the macro definition correctly and that it doesn't consume additional lines.
+
+    let expected_macro: ApertureMacro = ApertureMacro {
+        name: "DIAMOND".to_string(),
+        content: vec![MacroContent::Polygon(PolygonPrimitive {
+            exposure: true,  // 1 indicates exposure on
+            vertices: 4,     // diamond has 4 vertices
+            center: (MacroDecimal::Value(0.0), MacroDecimal::Value(0.0)),  // centered at origin
+            diameter: MacroDecimal::Value(1.0),  // diameter of circumscribed circle
+            angle: MacroDecimal::Value(0.0),  // no rotation
+        })],
+    };
+
+    // when
+    let result = parse_gerber(reader).commands;
+    println!("{:?}", result);
+
+    // then
+    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| match cmd {
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) => true,
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))) => true,
+            _ => false}
+        ).collect()};
+
+    let filtered_commands = filter_commands(result);
+
+    assert_eq!(filtered_commands, vec![
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(expected_macro))),
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(ApertureDefinition::new(
+            10,
+            Aperture::Other("DIAMOND".to_string())
+        )))),
+    ]);
+}

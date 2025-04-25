@@ -1,6 +1,6 @@
 use std::io::{Read, BufReader, BufRead, Lines};
 
-use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, MCode, DCode, Polarity, InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat, MacroDecimal, OutlinePrimitive, ApertureDefinition};
+use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, MCode, DCode, Polarity, InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat, MacroDecimal, OutlinePrimitive, ApertureDefinition, MacroContent, PolygonPrimitive};
 use regex::Regex;
 use std::str::Chars;
 use crate::error::GerberParserError;
@@ -309,37 +309,46 @@ fn parse_image_name(line: &str, gerber_doc: &GerberDoc) -> Result<String, Gerber
 }
 
 /// Safety: the method should only be called if the line starts with %AM
-fn parse_aperture_macro_definition<T: Read>(line: &str, parser_context: &mut ParserContext<T>, gerber_doc: &GerberDoc) -> Result<ApertureMacro, GerberParserError> {
-    if line.starts_with("%AM") && line.ends_with("*") {
-        // Extract macro name
-        let name = line[3..line.len()-1].to_string();
-        let mut macro_def = ApertureMacro::new(name);
+fn parse_aperture_macro_definition<T: Read>(first_line: &str, parser_context: &mut ParserContext<T>, gerber_doc: &GerberDoc) -> Result<ApertureMacro, GerberParserError> {
 
-        // Read and parse the macro content lines until we find the end marker ("%")
-        while let Some(content_line) = parser_context.next() {
-            let content_line = content_line?;
+    // Extract the macro name from the AM command
+    let re_macro = Regex::new(r"%AM([^*%]*)").unwrap();
+    let macro_name = re_macro.captures(first_line)
+        .and_then(|cap| cap.get(1))
+        .map(|m| m.as_str().trim())
+        .ok_or(GerberParserError::InvalidMacroName)?
+        .to_string();
 
-            // Split the line into comma-separated values
-            let values: Vec<&str> = content_line.trim().trim_end_matches('*').split(',').collect();
+    let mut content = Vec::new();
+    
+    // Read and parse the macro content lines until we find the end marker ("%")
+    while let Some(line_result) = parser_context.next() {
+        let line = line_result?.trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
 
-            if values.is_empty() {
-                continue; // Skip empty lines
-            }
+        // Split the line by commas and convert to a vector of strings
+        let params: Vec<&str> = line.trim_end_matches('*').split(',').collect();
 
-            // Parse outline primitive (type 4)
-            // TODO would be nice to have constants for the values in gerber-types. e.g. const APERTURE_MACRO_TYPE_OUTLINE: u8 = 4;
-            if values[0] == "4" {
-                if values.len() < 3 {
-                    return Err(GerberParserError::ApertureDefinitionParseFailed {
-                        aperture_definition_str: content_line
-                    });
+        if params.is_empty() {
+            continue;
+        }
+
+        // Parse outline primitive (type 4)
+        // TODO would be nice to have constants for the values in gerber-types. e.g. const APERTURE_MACRO_TYPE_OUTLINE: u8 = 4;
+        match params[0].parse::<u8>() {
+            Ok(4) => {
+                // Handle outline primitive
+                if params.len() < 3 {
+                    return Err(GerberParserError::InvalidMacroDefinition("expected 3 parameters for outline".to_string()));
                 }
 
                 // Parse exposure and number of points
-                let exposure = values[1].trim() == "1";
-                let num_points = values[2].trim().parse::<usize>().map_err(|_|
+                let exposure = params[1].trim() == "1";
+                let num_points = params[2].trim().parse::<usize>().map_err(|_|
                     GerberParserError::ApertureDefinitionParseFailed {
-                        aperture_definition_str: content_line
+                        aperture_definition_str: line
                     })?;
 
                 // Collect points from subsequent lines
@@ -360,6 +369,8 @@ fn parse_aperture_macro_definition<T: Read>(line: &str, parser_context: &mut Par
                                 })?;
                             points.push((MacroDecimal::Value(x), MacroDecimal::Value(y)));
                         }
+                    } else {
+                        return Err(GerberParserError::InvalidMacroDefinition("Missing outline point line.".to_string()));
                     }
                 }
 
@@ -374,19 +385,68 @@ fn parse_aperture_macro_definition<T: Read>(line: &str, parser_context: &mut Par
                         angle: MacroDecimal::Value(angle),
                     };
 
-                    macro_def.add_content_mut(outline);
+                    content.push(MacroContent::Outline(outline));
+                } else {
+                    return Err(GerberParserError::InvalidMacroDefinition("Missing angle line".to_string()));
                 }
-                break
+                break 
             }
+            Ok(5) => {
+                // Handle polygon primitive
+                if params.len() < 7 {
+                    return Err(GerberParserError::InvalidMacroDefinition("Expected 7 parameters for polygon".to_string()));
+                }
+
+                let exposure = params[1].parse::<u8>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })? == 1;
+                let vertices = params[2].parse::<u8>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })?;
+                let center_x = MacroDecimal::Value(params[3].parse::<f64>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })?);
+                let center_y = MacroDecimal::Value(params[4].parse::<f64>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })?);
+                let diameter = MacroDecimal::Value(params[5].parse::<f64>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })?);
+                let angle = MacroDecimal::Value(params[6].trim_end_matches("*%").parse::<f64>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })?);
+
+                content.push(MacroContent::Polygon(PolygonPrimitive {
+                    exposure,
+                    vertices,
+                    center: (center_x, center_y),
+                    diameter,
+                    angle,
+                }));
+                break
+            },
+            _ => {
+                // TODO support other primitives, like circle, rectangle, vector-line, center-line, etc.
+                while let Some(line_result) = parser_context.next() {
+                    let line = line_result?;
+                    let line = line.trim();
+                    if line.ends_with("%*") {
+                        break;
+                    }
+                }
+                return Err(GerberParserError::UnsupportedMacroDefinition)
+            },
+            
         }
-
-
-        Ok(macro_def)
-    } else {
-        Err(GerberParserError::ApertureDefinitionParseFailed {
-            aperture_definition_str: line[3..].to_string()
-        })
     }
+
+    Ok(ApertureMacro { name: macro_name, content })
 }
 
 /// parse a Gerber unit statement (e.g. '%MOMM*%')
