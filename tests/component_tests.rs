@@ -1,7 +1,7 @@
 use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, Coordinates, MacroContent, PolygonPrimitive, OutlinePrimitive, MacroDecimal, ApertureDefinition};
 use::std::collections::HashMap;
 use gerber_parser::error::{GerberParserErrorWithContext, };
-use gerber_parser::parser::{parse_gerber, coordinates_from_gerber, coordinates_offset_from_gerber};
+use gerber_parser::parser::{parse_gerber, coordinates_from_gerber, coordinates_offset_from_gerber, partial_coordinates_from_gerber};
 
 mod utils;
 
@@ -689,5 +689,68 @@ fn test_polygon_macro_and_aperture_definition() {
             10,
             Aperture::Other("DIAMOND".to_string())
         )))),
+    ]);
+}
+
+
+/// Diptrace 4.3 generates operation commands without a leading `0` on the `D0*` commands. 
+#[test]
+fn test_standalone_d_commands() {
+    let reader = utils::gerber_to_reader(r#"
+%FSLAX35Y35*%
+%MOMM*%
+%ADD10C,0.25*%
+D10*
+G01*
+
+X10000Y10000D2*
+D1*
+X20000D1*
+D3*
+Y20000D1*
+D3*
+X10000D1*
+D3*
+Y10000D1*
+D3*
+M02*
+"#);
+
+    // when
+    let result = parse_gerber(reader).commands;
+    println!("{:?}", result);
+
+    // then
+    let filter_commands = |cmds: Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| match cmd {
+            Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(_)))) => true,
+            _ => false
+        }).collect()
+    };
+
+    let filtered_commands = filter_commands(result);
+    let fs = CoordinateFormat::new(3, 5);
+
+    assert_eq!(filtered_commands, vec![
+        // Initial move
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Move(coordinates_from_gerber(10000, 10000, fs)))))),
+        // D1 with no coordinates - uses previous position
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(partial_coordinates_from_gerber(None, None, fs), None))))),
+        // X20000D1 - keeps previous Y coordinate
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(partial_coordinates_from_gerber(Some(20000), None, fs), None))))),
+        // D3 with no coordinates - uses previous position
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(None, None, fs)))))),
+        // Y20000D1 - keeps previous X coordinate
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(partial_coordinates_from_gerber(None, Some(20000), fs), None))))),
+        // D3 with no coordinates - uses previous position
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(None, None, fs)))))),
+        // X10000D1 - keeps previous Y coordinate
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(partial_coordinates_from_gerber(Some(10000), None, fs), None))))),
+        // D3 with no coordinates - uses previous position
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(None, None, fs)))))),
+        // Y10000D1 - keeps previous X coordinate
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(partial_coordinates_from_gerber(None, Some(10000), fs), None))))),
+        // D3 with no coordinates - uses previous position
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(None, None, fs))))))
     ]);
 }

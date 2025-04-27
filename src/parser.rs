@@ -260,9 +260,9 @@ fn parse_line<T: Read>(line: &str,
                 _ => Err(GerberParserError::UnknownCommand{})
             }
         },
-        'D' => { // select aperture D<num>*                   
+        'D' => { // select aperture D<num>* (where num >= 10) or command where num < 10
             linechars.next_back(); // remove the trailing '*'
-            parse_aperture_selection(linechars, &gerber_doc)
+            parse_aperture_selection_or_command(line, linechars, &gerber_doc)
         },
         'M' => Ok(FunctionCode::MCode(MCode::EndOfFile).into()),
         _ => Err(GerberParserError::UnknownCommand {})
@@ -614,35 +614,66 @@ fn parse_coord<T: std::str::FromStr>(coord_str: &str) -> Result<T, GerberParserE
 
 fn parse_aperture_code(code_str: &str) -> Result<i32, GerberParserError> {
     match code_str.parse::<i32>(){
-        Ok(v) if (v > 9) => {
+        Ok(v) if v >= 10 => {
             Ok(v)
-        }
-        Err(_) => {
-            Err(GerberParserError::ApertureCodeParseFailed { aperture_code_str: code_str.to_string() })
         }
         Ok(v) => {
             Err(GerberParserError::ApertureCodeParseFailed{ aperture_code_str: code_str.to_string() })
         }
+        Err(_) => {
+            Err(GerberParserError::ApertureCodeParseFailed { aperture_code_str: code_str.to_string() })
+        }
     }
 }
-fn parse_aperture_selection(
+fn parse_aperture_selection_or_command(
+    line: &str,
     linechars: Chars,
     gerber_doc: &GerberDoc
 )
     -> Result<Command, GerberParserError>
 {
     let aperture_str = linechars.as_str();
-    let aperture_code = parse_aperture_code(aperture_str)?;
-    match gerber_doc.apertures.contains_key(&aperture_code) {
-        true => {
-            Ok(FunctionCode::DCode(DCode::SelectAperture(aperture_code)).into())
+    if let Ok(aperture_code) = parse_aperture_code(aperture_str) {
+        match gerber_doc.apertures.contains_key(&aperture_code) {
+            true => {
+                Ok(FunctionCode::DCode(DCode::SelectAperture(aperture_code)).into())
+            }
+            false => {
+                Err(GerberParserError::ApertureNotDefined{aperture_code})
+            }
         }
-        false => {
-            Err(GerberParserError::ApertureNotDefined{aperture_code})
-        }
+    } else {
+        parse_command(line, gerber_doc)
     }
 }
 
+fn parse_command(command_str: &str, gerber_doc: &GerberDoc) -> Result<Command, GerberParserError> {
+    static RE_STANDALONE_D: Lazy<Regex> = lazy_regex!(r"D(0)?([1-3])\*");
+    if let Some(captures) = RE_STANDALONE_D.captures(command_str) {
+        let command_code = captures.get(2).unwrap().as_str(); {
+
+            let format = gerber_doc.format_specification.ok_or(
+                GerberParserError::OperationBeforeFormat{}
+            )?;
+            
+            let coords = Coordinates{
+                x: None,
+                y: None,
+                format,
+            };
+
+            let operation = match command_code {
+                "1" => Operation::Interpolate(coords, None),
+                "2" => Operation::Move(coords),
+                "3" => Operation::Flash(coords),
+                _ => unreachable!()
+            };
+            Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(operation))))
+        }
+    } else {
+        Err(GerberParserError::UnknownCommand {})
+    }
+}
 
 // parse a Gerber interpolation command (e.g. 'X2000Y40000I300J50000D01*')
 fn parse_interpolation(
@@ -963,6 +994,31 @@ pub fn coordinates_from_gerber(
     x_as_int *= 10i64.pow(factor);
     y_as_int *= 10i64.pow(factor);
     Coordinates::new(CoordinateNumber::new(x_as_int), CoordinateNumber::new(y_as_int), fs)
+}
+
+pub fn partial_coordinates_from_gerber(
+    x_as_int: Option<i64>,
+    y_as_int: Option<i64>,
+    fs: CoordinateFormat
+)
+    -> Coordinates
+{
+    // we have the raw gerber string as int but now have to convert it to nano precision format 
+    // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
+    let factor = (6u8 - fs.decimal) as u32;
+    let x = x_as_int.map(|value| value * 10i64.pow(factor));
+    let y = y_as_int.map(|value| value * 10i64.pow(factor));
+    
+    match (x,y)  {
+        (Some(x), Some(y)) => Coordinates::new(CoordinateNumber::new(x), CoordinateNumber::new(y), fs),
+        (None, Some(y)) => Coordinates::at_y(CoordinateNumber::new(y), fs),
+        (Some(x), None) => Coordinates::at_x(CoordinateNumber::new(x), fs),
+        (None, None) => Coordinates {
+            x: None,
+            y: None,
+            format: fs,
+        }
+    }
 }
 
 
