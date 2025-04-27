@@ -1,12 +1,11 @@
 use std::io::{Read, BufReader, BufRead, Lines};
 
-use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, MCode, DCode, Polarity, InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat, MacroDecimal, OutlinePrimitive, ApertureDefinition, MacroContent, PolygonPrimitive};
+use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, MCode, DCode, Polarity, InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat, MacroDecimal, OutlinePrimitive, MacroContent, PolygonPrimitive};
 use regex::Regex;
 use std::str::Chars;
 use crate::error::GerberParserError;
 use crate::gerber_doc::{ GerberDoc};
 use lazy_regex::*;
-use log::{debug, warn};
 
 // naively define some regex terms
 // TODO see which ones can be done without regex for better performance?
@@ -17,9 +16,6 @@ static RE_APERTURE: Lazy<Regex> = lazy_regex!(r"%ADD([0-9]+)(([A-Z]),(.*)|(.*))\
 static RE_INTERPOLATION: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?I?(-?[0-9]+)?J?(-?[0-9]+)?D(0)?1\*");
 static RE_MOVE_OR_FLASH: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?D(0)?[2-3]*");
 static RE_IMAGE_NAME: Lazy<Regex> = lazy_regex!(r"%IN(.*)\*%");
-static RE_IMAGE_POLARITY: Lazy<Regex> = lazy_regex!(r"%IP(.*)\*%");
-// TODO: handle escaped characters for attributes
-static RE_ATTRIBUTES: Lazy<Regex> = lazy_regex!(r"%T[A-Z].([A-Z]+?),?");
 static RE_STEP_REPEAT: Lazy<Regex> = lazy_regex!(r"%SRX([0-9]+)Y([0-9]+)I(\d+\.?\d*)J(\d+\.?\d*)\*%");
 
 
@@ -189,7 +185,7 @@ fn parse_line<T: Read>(line: &str,
                         }
                     }, 
                     'M' => {
-                        match parse_aperture_macro_definition(line, parser_context, &gerber_doc) {
+                        match parse_aperture_macro_definition(line, parser_context) {
                             Ok(macro_def) => {
                                 Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(macro_def)))
                             },
@@ -304,7 +300,7 @@ fn parse_image_name(line: &str, gerber_doc: &GerberDoc) -> Result<String, Gerber
 }
 
 /// Safety: the method should only be called if the line starts with %AM
-fn parse_aperture_macro_definition<T: Read>(first_line: &str, parser_context: &mut ParserContext<T>, gerber_doc: &GerberDoc) -> Result<ApertureMacro, GerberParserError> {
+fn parse_aperture_macro_definition<T: Read>(first_line: &str, parser_context: &mut ParserContext<T>,) -> Result<ApertureMacro, GerberParserError> {
 
     // Extract the macro name from the AM command
     let re_macro = Regex::new(r"%AM([^*%]*)").unwrap();
@@ -612,7 +608,7 @@ fn parse_aperture_code(code_str: &str) -> Result<i32, GerberParserError> {
         Ok(v) if v >= 10 => {
             Ok(v)
         }
-        Ok(v) => {
+        Ok(_v) => {
             Err(GerberParserError::ApertureCodeParseFailed{ aperture_code_str: code_str.to_string() })
         }
         Err(_) => {
@@ -791,8 +787,6 @@ fn parse_step_repeat_open(line: &str) -> Result<Command, GerberParserError> {
 /// ⚠️ This parsing statement needs a lot of tests and validation at the current stage!
 fn parse_file_attribute(line: Chars) -> Result<FileAttribute, GerberParserError> {
 
-    let raw_line = line.as_str().to_string();
-    
     let attr_args = get_attr_args(line)?;
     if attr_args.len() >= 2 {  // we must have at least 1 field
         //log::debug!("TF args are: {:?}", attr_args);

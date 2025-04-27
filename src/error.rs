@@ -1,5 +1,4 @@
 use std::fmt::Formatter;
-use gerber_types::Aperture;
 use regex::Regex;
 use thiserror::Error;
 

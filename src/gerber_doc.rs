@@ -1,4 +1,4 @@
-use gerber_types::{Unit, CoordinateFormat, Aperture, Command, ExtendedCode, ApertureDefinition, ApertureMacro};
+use gerber_types::{Unit, CoordinateFormat, Aperture, Command};
 use::std::collections::HashMap;
 use std::fmt;
 use std::iter::repeat;

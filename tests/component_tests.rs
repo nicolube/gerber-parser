@@ -1,4 +1,4 @@
-use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, Coordinates, MacroContent, PolygonPrimitive, OutlinePrimitive, MacroDecimal, ApertureDefinition};
+use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, MacroContent, PolygonPrimitive, OutlinePrimitive, MacroDecimal, ApertureDefinition};
 use::std::collections::HashMap;
 use gerber_parser::error::{GerberParserErrorWithContext, };
 use gerber_parser::parser::{parse_gerber, coordinates_from_gerber, coordinates_offset_from_gerber, partial_coordinates_from_gerber};
@@ -61,6 +61,7 @@ fn units() {
 }
 
 #[test]
+#[allow(non_snake_case)]
 fn G04_comments() {
     let reader = utils::gerber_to_reader("
     G04 Comment before typical configuration lines*
@@ -70,15 +71,18 @@ fn G04_comments() {
     M02*        
     ");
 
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+    let filter_commands = |cmds: Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
         cmds.into_iter().filter(|cmd| match cmd {
-                Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(_)))) => true, _ => false}).collect()};
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(_)))) => true,
+            _ => false
+        }).collect()
+    };
 
     let test_vec: Vec<Result<Command, GerberParserErrorWithContext>> = vec![
         Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment("Comment before typical configuration lines".to_string())))),
         Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment("And now a comment after them".to_string()))))
     ];
-    
+
     assert_eq!(filter_commands(parse_gerber(reader).commands), test_vec)
 }
 
@@ -109,8 +113,9 @@ fn aperture_selection() {
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::SelectAperture(22.into()))))])
 }
 
+/// Test the D01* statements (linear)
 #[test]
-// Test the D01* statements (linear)
+#[allow(non_snake_case)]
 fn D01_interpolation_linear() {
     let reader = utils::gerber_to_reader("
     %FSLAX23Y23*%
@@ -141,8 +146,9 @@ fn D01_interpolation_linear() {
 }
 
 
+/// Test the D01* statements (circular)
 #[test]
-// Test the D01* statements (circular)
+#[allow(non_snake_case)]
 fn D01_interpolation_circular() {
     let reader = utils::gerber_to_reader("
     %FSLAX23Y23*%
@@ -170,8 +176,9 @@ fn D01_interpolation_circular() {
             Some(coordinates_offset_from_gerber(200, -5000, fs)))))))])
 }
 
+/// Test the D02* statements 
 #[test]
-// Test the D02* statements 
+#[allow(non_snake_case)]
 fn DO2_move_to_command() {
     let reader = utils::gerber_to_reader("
     %FSLAX23Y23*%
@@ -201,8 +208,9 @@ fn DO2_move_to_command() {
             coordinates_from_gerber(5555, -12, fs))))))])
 }
 
+/// Test the D03* statements 
 #[test]
-// Test the D03* statements 
+#[allow(non_snake_case)]
 fn DO3_flash_command() {
     let reader = utils::gerber_to_reader("
     %FSLAX23Y23*%
@@ -229,9 +237,9 @@ fn DO3_flash_command() {
             coordinates_from_gerber(0, 0, fs))))))])
 }
 
+/// Gerber spec allows for omitted coordinates. This means that 'X100D03*' and 'Y100D03*' are
+/// valid statements.
 #[test]
-// Gerber spec allows for ommitted coordinates. This means that 'X100D03*' and 'Y100D03*' are
-// valid statements.
 fn omitted_coordinate() {
     let reader = utils::gerber_to_reader("
     %FSLAX23Y23*%
@@ -260,8 +268,8 @@ fn omitted_coordinate() {
 }
 
 
+/// Test Step and Repeat command (%SR*%)
 #[test]
-// Test Step and Repeat command (%SR*%)
 fn step_and_repeat() {
     let reader = utils::gerber_to_reader("
     %FSLAX23Y23*%
@@ -283,7 +291,6 @@ fn step_and_repeat() {
         cmds.into_iter().filter(|cmd| match cmd {
                 Ok(Command::ExtendedCode(ExtendedCode::StepAndRepeat(_))) => true, _ => false}).collect()};
 
-    let fs =  CoordinateFormat::new(2,3);
     assert_eq!(filter_commands(parse_gerber(reader).commands), vec![
         Ok(Command::ExtendedCode(ExtendedCode::StepAndRepeat(StepAndRepeat::Open{
             repeat_x: 12,
@@ -337,8 +344,9 @@ fn aperture_definitions() {
         ]))
 }
 
-#[test]
 // TODO: make more exhaustive
+#[test]
+#[allow(non_snake_case)]
 fn TA_aperture_attributes() {
     let reader = utils::gerber_to_reader("
     %FSLAX23Y23*%
@@ -358,7 +366,6 @@ fn TA_aperture_attributes() {
         cmds.into_iter().filter(|cmd| match cmd {
             Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(_))) => true, _ => false}).collect()};
 
-    let fs =  CoordinateFormat::new(2,3);
     assert_eq!(filter_commands(parse_gerber(reader).commands), vec![
         Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(ApertureAttribute::ApertureFunction(ApertureFunction::WasherPad)))),
         Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(ApertureAttribute::ApertureFunction(ApertureFunction::Profile)))),
@@ -367,8 +374,9 @@ fn TA_aperture_attributes() {
         ])
 }
 
-#[test]
 // TODO: make more exhaustive
+#[test]
+#[allow(non_snake_case)]
 fn TF_file_attributes() {
     let reader = utils::gerber_to_reader("
     %FSLAX23Y23*%
@@ -388,7 +396,6 @@ fn TF_file_attributes() {
         cmds.into_iter().filter(|cmd| match cmd {
             Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(_))) => true, _ => false}).collect()};
 
-    let fs =  CoordinateFormat::new(2,3);
     assert_eq!(filter_commands(parse_gerber(reader).commands), vec![
         Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(FileAttribute::Part(Part::Array)))),
         Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(FileAttribute::Part(Part::Other("funnypartname".to_string()))))),
@@ -506,10 +513,10 @@ fn nonexistent_aperture_selection() {
     assert!(guy.get_errors().is_empty());
 }
 
+/// This statement should fail as this is not within the format specification (2 integer, 3 decimal)
 #[test]
 #[ignore]
 #[should_panic]
-// This statement should fail as this is not within the format specification (2 integer, 3 decimal)
 fn coordinates_not_within_format() {
     let reader = utils::gerber_to_reader("
     %FSLAX23Y23*%
@@ -528,8 +535,9 @@ fn coordinates_not_within_format() {
 }
 
 
+/// Test the D* statements, diptrace exports gerber files without the leading `0` on the `D0*` commands. 
 #[test]
-// Test the D* statements, diptrace exports gerber files without the leading `0` on the `D0*` commands. 
+#[allow(non_snake_case)]
 fn diptrace_Dxx_statements() {
     let reader = utils::gerber_to_reader(r#"
     %TF.GenerationSoftware,Novarm,DipTrace,4.3.0.6*%
