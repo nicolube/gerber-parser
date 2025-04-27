@@ -679,20 +679,8 @@ fn parse_interpolation(
 {
     match RE_INTERPOLATION.captures(line) {
         Some(regmatch) => {
-            let x_coord = match regmatch.get(1) {
-                Some(x) => { 
-                    let new_x = parse_coord::<i64>(x.as_str())?;
-                    Some(new_x)
-                }
-                None => None,
-            };
-            let y_coord = match regmatch.get(2) {
-                Some(y) => {
-                    let new_y = parse_coord::<i64>(y.as_str())?;
-                    Some(new_y)
-                }
-                None => None,
-            };
+            let x_coord = regmatch.get(1).map(|x| parse_coord::<i64>(x.as_str())).transpose()?;
+            let y_coord = regmatch.get(2).map(|y| parse_coord::<i64>(y.as_str())).transpose()?;
     
             if let Some((i_offset_raw, j_offset_raw)) = regmatch
                 .get(3)
@@ -747,20 +735,8 @@ fn parse_move_or_flash(
 {
     match RE_MOVE_OR_FLASH.captures(line) {
         Some(regmatch) => {
-            let x_coord = match regmatch.get(1) {
-                Some(x) => {
-                    let new_x = parse_coord::<i64>(x.as_str())?;
-                    Some(new_x)
-                }
-                None => None
-            };
-            let y_coord = match regmatch.get(2) {
-                Some(y) => {
-                    let new_y = parse_coord::<i64>(y.as_str())?;
-                    Some(new_y)
-                }
-                None => None,
-            };
+            let x_coord = regmatch.get(1).map(|x| parse_coord::<i64>(x.as_str())).transpose()?;
+            let y_coord = regmatch.get(2).map(|y| parse_coord::<i64>(y.as_str())).transpose()?;
             
             let coords = partial_coordinates_from_gerber(
                 x_coord,
