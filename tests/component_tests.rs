@@ -241,7 +241,7 @@ fn omitted_coordinate() {
 
     G04 here the last coordinate is (0,0) - by construction*
     Y-3000D03*
-    G04 Now we set X=1234, but we keep the last Y coordinate, namely -3000*
+    G04 Now we set X=1234, but the client needs to maintain the last Y coordinate, namely -3000*
     X1234D03*
 
     M02*        
@@ -254,9 +254,9 @@ fn omitted_coordinate() {
     let fs =  CoordinateFormat::new(2,3);
     assert_eq!(filter_commands(parse_gerber(reader).commands), vec![
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Flash(
-            coordinates_from_gerber(0, -3000, fs)))))),
+            partial_coordinates_from_gerber(None, Some(-3000), fs)))))),
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Flash(
-            coordinates_from_gerber(1234, -3000, fs))))))])
+            partial_coordinates_from_gerber(Some(1234), None, fs))))))])
 }
 
 
@@ -566,8 +566,8 @@ fn diptrace_Dxx_statements() {
 
     assert_eq!(filtered_commands, vec![
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Move(coordinates_from_gerber(2928500, 1670000, fs)))))),
-        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(coordinates_from_gerber(2998500, 1670000, fs), None))))),
-        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(coordinates_from_gerber(2998500, 1530000, fs), None))))),
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(partial_coordinates_from_gerber(Some(2998500), None, fs), None))))),
+        Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(partial_coordinates_from_gerber(None, Some(1530000), fs), None))))),
     ]);
 }
 
