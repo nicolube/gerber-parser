@@ -61,10 +61,6 @@ pub fn parse_gerber<T: Read>(reader: BufReader<T>) -> GerberDoc {
 /// match something unexpected (rather than panicking) if there is a typo/fault in your file.
 fn parse_gerber_inner<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, GerberParserError> {
     let mut gerber_doc = GerberDoc::new();
-    // The gerber spec allows omission of X or Y statements in D01/2/3 commands, where the omitted
-    // coordinate is to be taken as whatever was used in the previous coordinate-using command
-    // By default the 'last coordinate' can be taken to be (0,0)
-    let mut last_coords = (0i64,0i64);
 
     let mut parser_context = ParserContext::new(reader.lines());
 
@@ -84,7 +80,7 @@ fn parse_gerber_inner<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, Gerber
         println!("{}. {}", line_number, &line);
         
         if !line.is_empty() {
-            let line_result = match parse_line(line, &mut gerber_doc, &mut last_coords, &mut parser_context) {
+            let line_result = match parse_line(line, &mut gerber_doc, &mut parser_context) {
                 Ok(command) => {
                     log::debug!("Found command: {:?}", command);
                     Ok(command)
@@ -115,7 +111,6 @@ fn parse_gerber_inner<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, Gerber
 
 fn parse_line<T: Read>(line: &str,
               gerber_doc: &mut GerberDoc,
-              last_coords: &mut (i64,i64),
               parser_context: &mut ParserContext<T>
 ) -> Result<Command, GerberParserError> {
     let mut linechars = line.chars();
@@ -254,9 +249,9 @@ fn parse_line<T: Read>(line: &str,
         'X' | 'Y' => {
             linechars.next_back(); 
             match linechars.next_back().ok_or(GerberParserError::UnknownCommand{})? {
-                '1' => parse_interpolation(line, &gerber_doc, last_coords), // D01
-                '2' => parse_move_or_flash(line, &gerber_doc, last_coords, false), // D02
-                '3' => parse_move_or_flash(line, &gerber_doc, last_coords, true), // D03
+                '1' => parse_interpolation(line, &gerber_doc), // D01
+                '2' => parse_move_or_flash(line, &gerber_doc, false), // D02
+                '3' => parse_move_or_flash(line, &gerber_doc, true), // D03
                 _ => Err(GerberParserError::UnknownCommand{})
             }
         },
@@ -679,7 +674,6 @@ fn parse_command(command_str: &str, gerber_doc: &GerberDoc) -> Result<Command, G
 fn parse_interpolation(
     line: &str,
     gerber_doc: &GerberDoc, 
-    last_coords: &mut (i64, i64)
 )
     -> Result<Command, GerberParserError> 
 {
@@ -688,18 +682,16 @@ fn parse_interpolation(
             let x_coord = match regmatch.get(1) {
                 Some(x) => { 
                     let new_x = parse_coord::<i64>(x.as_str())?;
-                    last_coords.0 = new_x;
-                    new_x
+                    Some(new_x)
                 }
-                None => last_coords.0, // if match is None, then the coordinate must have been implicit
+                None => None,
             };
             let y_coord = match regmatch.get(2) {
                 Some(y) => {
                     let new_y = parse_coord::<i64>(y.as_str())?;
-                    last_coords.1 = new_y;
-                    new_y
+                    Some(new_y)
                 }
-                None => last_coords.1, // if match is None, then the coordinate must have been implicit
+                None => None,
             };
     
             if let Some((i_offset_raw, j_offset_raw)) = regmatch
@@ -711,7 +703,7 @@ fn parse_interpolation(
     
                 Ok(FunctionCode::DCode(DCode::Operation(
                     Operation::Interpolate(
-                        coordinates_from_gerber(
+                        partial_coordinates_from_gerber(
                             x_coord, 
                             y_coord, 
                             gerber_doc.format_specification.ok_or(
@@ -728,7 +720,7 @@ fn parse_interpolation(
             } else { // linear interpolation, only X,Y parameters
                 Ok(FunctionCode::DCode(DCode::Operation(
                     Operation::Interpolate(
-                        coordinates_from_gerber(
+                        partial_coordinates_from_gerber(
                             x_coord, 
                             y_coord, 
                             gerber_doc.format_specification.ok_or(
@@ -749,7 +741,6 @@ fn parse_interpolation(
 fn parse_move_or_flash(
     line: &str,
     gerber_doc: &GerberDoc, 
-    last_coords: &mut (i64, i64), 
     flash: bool
 ) 
     -> Result<Command, GerberParserError> 
@@ -759,21 +750,19 @@ fn parse_move_or_flash(
             let x_coord = match regmatch.get(1) {
                 Some(x) => {
                     let new_x = parse_coord::<i64>(x.as_str())?;
-                    last_coords.0 = new_x;
-                    new_x
+                    Some(new_x)
                 }
-                None => last_coords.0, // if match is None, then the coordinate must have been implicit
+                None => None
             };
             let y_coord = match regmatch.get(2) {
                 Some(y) => {
                     let new_y = parse_coord::<i64>(y.as_str())?;
-                    last_coords.1 = new_y;
-                    new_y
+                    Some(new_y)
                 }
-                None => last_coords.1, // if match is None, then the coordinate must have been implicit
+                None => None,
             };
             
-            let coords = coordinates_from_gerber(
+            let coords = partial_coordinates_from_gerber(
                 x_coord,
                 y_coord,
                 gerber_doc.format_specification
