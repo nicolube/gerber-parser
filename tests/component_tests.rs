@@ -1,4 +1,4 @@
-use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, MacroContent, PolygonPrimitive, OutlinePrimitive, MacroDecimal, ApertureDefinition};
+use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, MacroContent, PolygonPrimitive, OutlinePrimitive, MacroDecimal, ApertureDefinition, CirclePrimitive, VectorLinePrimitive};
 use::std::collections::HashMap;
 use gerber_parser::error::{GerberParserErrorWithContext, };
 use gerber_parser::parser::{parse_gerber, coordinates_from_gerber, coordinates_offset_from_gerber, partial_coordinates_from_gerber};
@@ -761,4 +761,123 @@ M02*
         // D3 with no coordinates - uses previous position
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(None, None, fs))))))
     ]);
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn test_kicad_macro() {
+    let reader = utils::gerber_to_reader(r#"
+%TF.GenerationSoftware,KiCad,Pcbnew,8.0.3*%
+%TF.CreationDate,2025-04-28T16:25:44+02:00*%
+%TF.ProjectId,SPRacingRXN1-RevB-20240507-1510,53505261-6369-46e6-9752-584e312d5265,rev?*%
+%TF.SameCoordinates,Original*%
+%TF.FileFunction,Copper,L1,Top*%
+%TF.FilePolarity,Positive*%
+%FSLAX46Y46*%
+G04 Gerber Fmt 4.6, Leading zero omitted, Abs format (unit mm)*
+G04 Created by KiCad (PCBNEW 8.0.3) date 2025-04-28 16:25:44*
+%MOMM*%
+%LPD*%
+G01*
+G04 APERTURE LIST*
+G04 Aperture macros list*
+%AMRoundRect*
+0 Rectangle with rounded corners*
+0 $1 Rounding radius*
+0 $2 $3 $4 $5 $6 $7 $8 $9 X,Y pos of 4 corners*
+0 Add a 4 corners polygon primitive as box body*
+4,1,4,$2,$3,$4,$5,$6,$7,$8,$9,$2,$3,0*
+0 Add four circle primitives for the rounded corners*
+1,1,$1+$1,$2,$3*
+1,1,$1+$1,$4,$5*
+1,1,$1+$1,$6,$7*
+1,1,$1+$1,$8,$9*
+0 Add four rect primitives between the rounded corners*
+20,1,$1+$1,$2,$3,$4,$5,0*
+20,1,$1+$1,$4,$5,$6,$7,0*
+20,1,$1+$1,$6,$7,$8,$9,0*
+20,1,$1+$1,$8,$9,$2,$3,0*%
+
+G04 Aperture macros list end*
+    "#);
+
+    // Note, it's important that the macro definition isn't the only command in the file because it's important that
+    // the macro parser finds the end of the macro definition correctly and that it doesn't consume additional lines.
+
+    let expected_macro_1: ApertureMacro = ApertureMacro {
+        name: "RoundRect".to_string(),
+        content: vec![
+            MacroContent::Comment("Rectangle with rounded corners".to_string()),
+            MacroContent::Comment("$1 Rounding radius".to_string()),
+            MacroContent::Comment("$2 $3 $4 $5 $6 $7 $8 $9 X,Y pos of 4 corners".to_string()),
+            MacroContent::Comment("Add a 4 corners polygon primitive as box body".to_string()),
+            MacroContent::Outline(OutlinePrimitive {
+                exposure: true,
+                points: vec![
+                    (MacroDecimal::Variable(2), MacroDecimal::Variable(3)),
+                    (MacroDecimal::Variable(4), MacroDecimal::Variable(5)),
+                    (MacroDecimal::Variable(6), MacroDecimal::Variable(7)),
+                    (MacroDecimal::Variable(8), MacroDecimal::Variable(9)),
+                    (MacroDecimal::Variable(2), MacroDecimal::Variable(3)),
+                ],
+                angle: MacroDecimal::Value(0.0),
+            }),
+            MacroContent::Comment("Add four circle primitives for the rounded corners".to_string()),
+            MacroContent::Circle(CirclePrimitive {
+                exposure: true,
+                diameter: MacroDecimal::Expression("$1+$1"),
+                center: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
+                angle: None,
+            }),
+            MacroContent::Circle(CirclePrimitive {
+                exposure: true,
+                diameter: MacroDecimal::Expression("$1+$1"),
+                center: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
+                angle: None,
+            }),
+            MacroContent::Circle(CirclePrimitive {
+                exposure: true,
+                diameter: MacroDecimal::Expression("$1+$1"),
+                center: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
+                angle: None,
+            }),
+            MacroContent::Circle(CirclePrimitive {
+                exposure: true,
+                diameter: MacroDecimal::Expression("$1+$1"),
+                center: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
+                angle: None,
+            }),
+            MacroContent::Comment("Add four rect primitives between the rounded corners".to_string()),
+            MacroContent::VectorLine(VectorLinePrimitive {
+                exposure: true,
+                width: MacroDecimal::Expression("$1+$1"),
+                start: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
+                end: (MacroDecimal::Variable(4), MacroDecimal::Variable (5)),
+                angle: MacroDecimal::Value(0.0),
+            })
+        ],
+    };
+
+    // when
+    let result = parse_gerber(reader).commands;
+    println!("{:?}", result);
+    
+    // then
+    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| match cmd {
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) => true,
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))) => true,
+            _ => false}
+        ).collect()};
+
+    let filtered_commands = filter_commands(result);
+
+    assert_eq!(filtered_commands, vec![
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(expected_macro_1))),
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(ApertureDefinition::new(
+            10,
+            Aperture::Other("DIAMOND".to_string())
+        )))),
+    ]);
+
 }
