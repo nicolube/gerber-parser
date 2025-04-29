@@ -1,10 +1,42 @@
-use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, MacroContent, PolygonPrimitive, OutlinePrimitive, MacroDecimal, ApertureDefinition, CirclePrimitive, VectorLinePrimitive};
+use gerber_types::{GCode, DCode, FunctionCode, Command, Unit, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, Operation, ExtendedCode, ApertureAttribute, ApertureFunction, FileAttribute, Part, FileFunction, FilePolarity, StepAndRepeat, MacroContent, PolygonPrimitive, OutlinePrimitive, MacroDecimal, ApertureDefinition, CirclePrimitive, VectorLinePrimitive, MacroBoolean, MacroInteger};
 use::std::collections::HashMap;
 use gerber_parser::error::{GerberParserErrorWithContext, };
 use gerber_parser::parser::{parse_gerber, coordinates_from_gerber, coordinates_offset_from_gerber, partial_coordinates_from_gerber};
 
 mod utils;
 
+fn dump_commands(commands: &Vec<Result<Command, GerberParserErrorWithContext>>) {
+    println!("{}", commands_to_string(commands));
+    println!();
+}
+
+fn commands_to_string(commands: &Vec<Result<Command, GerberParserErrorWithContext>>) -> String {
+    commands
+        .iter()
+        .map(|it| format!("{:?}", it))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// This macro can be used like assert_eq!(), except that is converts the commands to a string, with newlines between
+/// each command and compares those first.
+///
+/// Doing this makes it easier to see the differences in IDEs like RustRover which provide a 'diff' view
+/// for analyzing failures.  Different or missing commands are *much* easier to spot.
+///
+/// It does two asserts, one for the string (debug) representation of the commands, and one for the commands' values.
+macro_rules! assert_eq_commands {
+    ($left:expr, $right:expr) => {
+        {
+            let left = $left;
+            let right = $right;
+            // ensures the debug representations are the same
+            assert_eq!(commands_to_string(&left), commands_to_string(&right));
+            // ensures the values are the same
+            assert_eq!(left, right);
+        }
+    };
+}
 
 // #[test]
 // fn test_full_gerber() {
@@ -558,8 +590,9 @@ fn diptrace_Dxx_statements() {
     "#);
 
     // when
-    let result = parse_gerber(reader).commands;
-    
+    let commands = parse_gerber(reader).commands;
+    dump_commands(&commands);
+
     // then
     let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
         cmds.into_iter().filter(|cmd| match cmd {
@@ -567,12 +600,13 @@ fn diptrace_Dxx_statements() {
             Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(_, _))))) => true,
             _ => false}
         ).collect()};
-    println!("{:?}", result);
-    
-    let filtered_commands = filter_commands(result);
+
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
+
     let fs =  CoordinateFormat::new(3,5);
 
-    assert_eq!(filtered_commands, vec![
+    assert_eq_commands!(filtered_commands, vec![
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Move(coordinates_from_gerber(2928500, 1670000, fs)))))),
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(partial_coordinates_from_gerber(Some(2998500), None, fs), None))))),
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(partial_coordinates_from_gerber(None, Some(1530000), fs), None))))),
@@ -608,7 +642,7 @@ fn test_outline_macro_and_aperture_definition() {
     let expected_macro: ApertureMacro = ApertureMacro {
         name: "OUTLINE0".to_string(),
         content: vec![MacroContent::Outline(OutlinePrimitive {
-            exposure: true,  // 1 indicates exposure on
+            exposure: MacroBoolean::Value(true),  // 1 indicates exposure on
             points: vec![
                 (MacroDecimal::Value(-0.40659), MacroDecimal::Value(0.19445)),
                 (MacroDecimal::Value(-0.26517), MacroDecimal::Value(0.33588)),
@@ -622,8 +656,8 @@ fn test_outline_macro_and_aperture_definition() {
     };
 
     // when
-    let result = parse_gerber(reader).commands;
-    println!("{:?}", result);
+    let commands = parse_gerber(reader).commands;
+    dump_commands(&commands);
 
     // then
     let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
@@ -633,13 +667,14 @@ fn test_outline_macro_and_aperture_definition() {
             _ => false}
         ).collect()};
 
-    let filtered_commands = filter_commands(result);
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
 
-    assert_eq!(filtered_commands, vec![
+    assert_eq_commands!(filtered_commands, vec![
         Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(expected_macro))),
         Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(ApertureDefinition::new(
             17,
-            Aperture::Other("OUTLINE0".to_string())
+            Aperture::Macro("OUTLINE0".to_string(), None)
         )))),
     ]);
 }
@@ -652,7 +687,7 @@ fn test_polygon_macro_and_aperture_definition() {
     %FSLAX36Y36*%
     %MOMM*%
     %AMDIAMOND*
-    5,1,4,0,0,1,0*%
+    5,1,4,0,0,1,45*%
     %ADD10DIAMOND*%
     %LPD*%
     G75*
@@ -669,17 +704,17 @@ fn test_polygon_macro_and_aperture_definition() {
     let expected_macro: ApertureMacro = ApertureMacro {
         name: "DIAMOND".to_string(),
         content: vec![MacroContent::Polygon(PolygonPrimitive {
-            exposure: true,  // 1 indicates exposure on
-            vertices: 4,     // diamond has 4 vertices
+            exposure: MacroBoolean::Value(true),  // 1 indicates exposure on
+            vertices: MacroInteger::Value(4),     // diamond has 4 vertices
             center: (MacroDecimal::Value(0.0), MacroDecimal::Value(0.0)),  // centered at origin
             diameter: MacroDecimal::Value(1.0),  // diameter of circumscribed circle
-            angle: MacroDecimal::Value(0.0),  // no rotation
+            angle: MacroDecimal::Value(45.0),  // 45 degree rotation
         })],
     };
 
     // when
-    let result = parse_gerber(reader).commands;
-    println!("{:?}", result);
+    let commands = parse_gerber(reader).commands;
+    dump_commands(&commands);
 
     // then
     let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
@@ -689,13 +724,14 @@ fn test_polygon_macro_and_aperture_definition() {
             _ => false}
         ).collect()};
 
-    let filtered_commands = filter_commands(result);
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
 
-    assert_eq!(filtered_commands, vec![
+    assert_eq_commands!(filtered_commands, vec![
         Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(expected_macro))),
         Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(ApertureDefinition::new(
             10,
-            Aperture::Other("DIAMOND".to_string())
+            Aperture::Macro("DIAMOND".to_string(), None)
         )))),
     ]);
 }
@@ -725,8 +761,8 @@ M02*
 "#);
 
     // when
-    let result = parse_gerber(reader).commands;
-    println!("{:?}", result);
+    let commands = parse_gerber(reader).commands;
+    dump_commands(&commands);
 
     // then
     let filter_commands = |cmds: Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
@@ -736,10 +772,12 @@ M02*
         }).collect()
     };
 
-    let filtered_commands = filter_commands(result);
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
+
     let fs = CoordinateFormat::new(3, 5);
 
-    assert_eq!(filtered_commands, vec![
+    assert_eq_commands!(filtered_commands, vec![
         // Initial move
         Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Move(coordinates_from_gerber(10000, 10000, fs)))))),
         // D1 with no coordinates - uses previous position
@@ -799,7 +837,19 @@ G04 Aperture macros list*
 20,1,$1+$1,$8,$9,$2,$3,0*%
 
 G04 Aperture macros list end*
+%ADD36RoundRect,0.110250X0.114771X-0.214739X0.114729X0.214761X-0.114771X0.214739X-0.114729X-0.214761X0*%
+D36*
+X155251142Y-100803551D03*
+M02*
     "#);
+
+    // Note the comment "0 Add a 4 corners polygon primitive as box body" is wrong (Kicad 8.0)
+    // and should read "0 Add a 4-corner outline primitive as box body" (code 4 = outline)
+
+    // Note the comment "Add four rect primitives between the rounded corners" is wrong (Kicad 8.0)
+    // and should read "Add four vector-line primitives between the rounded corners" (code 20 = vector-line)
+
+    // FUTURE raise the above 2 issues with this in the KiCad issue tracker, add a link here.
 
     // Note, it's important that the macro definition isn't the only command in the file because it's important that
     // the macro parser finds the end of the macro definition correctly and that it doesn't consume additional lines.
@@ -812,7 +862,7 @@ G04 Aperture macros list end*
             MacroContent::Comment("$2 $3 $4 $5 $6 $7 $8 $9 X,Y pos of 4 corners".to_string()),
             MacroContent::Comment("Add a 4 corners polygon primitive as box body".to_string()),
             MacroContent::Outline(OutlinePrimitive {
-                exposure: true,
+                exposure: MacroBoolean::Value(true),
                 points: vec![
                     (MacroDecimal::Variable(2), MacroDecimal::Variable(3)),
                     (MacroDecimal::Variable(4), MacroDecimal::Variable(5)),
@@ -824,44 +874,65 @@ G04 Aperture macros list end*
             }),
             MacroContent::Comment("Add four circle primitives for the rounded corners".to_string()),
             MacroContent::Circle(CirclePrimitive {
-                exposure: true,
-                diameter: MacroDecimal::Expression("$1+$1"),
+                exposure: MacroBoolean::Value(true),
+                diameter: MacroDecimal::Expression("$1+$1".to_string()),
                 center: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
                 angle: None,
             }),
             MacroContent::Circle(CirclePrimitive {
-                exposure: true,
-                diameter: MacroDecimal::Expression("$1+$1"),
-                center: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
+                exposure: MacroBoolean::Value(true),
+                diameter: MacroDecimal::Expression("$1+$1".to_string()),
+                center: (MacroDecimal::Variable(4), MacroDecimal::Variable (5)),
                 angle: None,
             }),
             MacroContent::Circle(CirclePrimitive {
-                exposure: true,
-                diameter: MacroDecimal::Expression("$1+$1"),
-                center: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
+                exposure: MacroBoolean::Value(true),
+                diameter: MacroDecimal::Expression("$1+$1".to_string()),
+                center: (MacroDecimal::Variable(6), MacroDecimal::Variable (7)),
                 angle: None,
             }),
             MacroContent::Circle(CirclePrimitive {
-                exposure: true,
-                diameter: MacroDecimal::Expression("$1+$1"),
-                center: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
+                exposure: MacroBoolean::Value(true),
+                diameter: MacroDecimal::Expression("$1+$1".to_string()),
+                center: (MacroDecimal::Variable(8), MacroDecimal::Variable (9)),
                 angle: None,
             }),
             MacroContent::Comment("Add four rect primitives between the rounded corners".to_string()),
             MacroContent::VectorLine(VectorLinePrimitive {
-                exposure: true,
-                width: MacroDecimal::Expression("$1+$1"),
+                exposure: MacroBoolean::Value(true),
+                width: MacroDecimal::Expression("$1+$1".to_string()),
                 start: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
                 end: (MacroDecimal::Variable(4), MacroDecimal::Variable (5)),
                 angle: MacroDecimal::Value(0.0),
-            })
+            }),
+            MacroContent::VectorLine(VectorLinePrimitive {
+                exposure: MacroBoolean::Value(true),
+                width: MacroDecimal::Expression("$1+$1".to_string()),
+                start: (MacroDecimal::Variable(4), MacroDecimal::Variable (5)),
+                end: (MacroDecimal::Variable(6), MacroDecimal::Variable (7)),
+                angle: MacroDecimal::Value(0.0),
+            }),
+            MacroContent::VectorLine(VectorLinePrimitive {
+                exposure: MacroBoolean::Value(true),
+                width: MacroDecimal::Expression("$1+$1".to_string()),
+                start: (MacroDecimal::Variable(6), MacroDecimal::Variable (7)),
+                end: (MacroDecimal::Variable(8), MacroDecimal::Variable (9)),
+                angle: MacroDecimal::Value(0.0),
+            }),
+            MacroContent::VectorLine(VectorLinePrimitive {
+                exposure: MacroBoolean::Value(true),
+                width: MacroDecimal::Expression("$1+$1".to_string()),
+                start: (MacroDecimal::Variable(8), MacroDecimal::Variable (9)),
+                end: (MacroDecimal::Variable(2), MacroDecimal::Variable (3)),
+                angle: MacroDecimal::Value(0.0),
+            }),
         ],
     };
 
     // when
-    let result = parse_gerber(reader).commands;
-    println!("{:?}", result);
-    
+    let commands = parse_gerber(reader).commands;
+    dump_commands(&commands);
+
     // then
     let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
         cmds.into_iter().filter(|cmd| match cmd {
@@ -870,14 +941,14 @@ G04 Aperture macros list end*
             _ => false}
         ).collect()};
 
-    let filtered_commands = filter_commands(result);
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
 
-    assert_eq!(filtered_commands, vec![
+    assert_eq_commands!(filtered_commands, vec![
         Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(expected_macro_1))),
         Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(ApertureDefinition::new(
-            10,
-            Aperture::Other("DIAMOND".to_string())
+            36,
+            Aperture::Macro("RoundRect".to_string(), Some("0.110250X0.114771X-0.214739X0.114729X0.214761X-0.114771X0.214739X-0.114729X-0.214761X0".to_string()))
         )))),
     ]);
-
 }

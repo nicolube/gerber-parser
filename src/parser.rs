@@ -1,23 +1,30 @@
 use std::io::{Read, BufReader, BufRead, Lines};
 
-use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, MCode, DCode, Polarity, InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat, MacroDecimal, OutlinePrimitive, MacroContent, PolygonPrimitive};
+use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, MCode, DCode, Polarity, InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat, MacroDecimal, OutlinePrimitive, MacroContent, PolygonPrimitive, MacroBoolean, MacroInteger, CirclePrimitive, VectorLinePrimitive, CenterLinePrimitive};
 use regex::Regex;
 use std::str::Chars;
 use crate::error::GerberParserError;
 use crate::gerber_doc::{ GerberDoc};
 use lazy_regex::*;
 
+
 // naively define some regex terms
-// TODO see which ones can be done without regex for better performance?
+// FUTURE investigate which ones can be done without regex for better performance.
+// FUTURE using named captures in all regular expressions would be nice, this would enable the use of string
+//        constants for the capture names, this would improve the error messages too.
 static RE_UNITS: Lazy<Regex> = lazy_regex!(r"%MO(.*)\*%");
 static RE_COMMENT: Lazy<Regex> = lazy_regex!(r"G04 (.*)\*");
 static RE_FORMAT_SPEC: Lazy<Regex> = lazy_regex!(r"%FSLAX(.*)Y(.*)\*%");
-static RE_APERTURE: Lazy<Regex> = lazy_regex!(r"%ADD([0-9]+)(([A-Z]),(.*)|(.*))\*%");
+
+/// https://regex101.com/r/YNnrmK/1
+static RE_APERTURE: Lazy<Regex> = lazy_regex!(r"%ADD([0-9]+)([._$a-zA-Z][._$a-zA-Z0-9]{0,126})(?:,\s?(.*))?\*%");
 static RE_INTERPOLATION: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?I?(-?[0-9]+)?J?(-?[0-9]+)?D(0)?1\*");
 static RE_MOVE_OR_FLASH: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?D(0)?[2-3]*");
 static RE_IMAGE_NAME: Lazy<Regex> = lazy_regex!(r"%IN(.*)\*%");
 static RE_STEP_REPEAT: Lazy<Regex> = lazy_regex!(r"%SRX([0-9]+)Y([0-9]+)I(\d+\.?\d*)J(\d+\.?\d*)\*%");
-
+static RE_MACRO_UNSIGNED_INTEGER: Lazy<Regex> = lazy_regex!(r"(?P<value>[0-9]+)|(?P<variable>^\$[0-9]+$)|(?P<expression>.*)");
+static RE_MACRO_BOOLEAN: Lazy<Regex> = lazy_regex!(r"(?P<value>0|1)|(?P<variable>^\$[0-9]+$)|(?P<expression>.*)");
+static RE_MACRO_DECIMAL: Lazy<Regex> = lazy_regex!(r"(?P<value>[+-]?[0-9]+(?:\.[0-9]*)?)|(?P<variable>^\$[0-9]+$)|(?P<expression>.*)");
 
 struct ParserContext<T: Read> {
     line_number: usize,
@@ -73,7 +80,6 @@ fn parse_gerber_inner<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, Gerber
 
         // Show the line 
         //log::debug!("{}. {}", index + 1, &line);
-        println!("{}. {}", line_number, &line);
         
         if !line.is_empty() {
             let line_result = match parse_line(line, &mut gerber_doc, &mut parser_context) {
@@ -299,8 +305,11 @@ fn parse_image_name(line: &str, gerber_doc: &GerberDoc) -> Result<String, Gerber
     }
 }
 
+/// gerber spec (2021.02) 4.5.1.1 "Except for the comment all the parameters can be a decimal, integer, macro variables or an
+/// arithmetic expression."
+///
 /// Safety: the method should only be called if the line starts with %AM
-fn parse_aperture_macro_definition<T: Read>(first_line: &str, parser_context: &mut ParserContext<T>,) -> Result<ApertureMacro, GerberParserError> {
+fn parse_aperture_macro_definition<T: Read>(first_line: &str, parser_context: &mut ParserContext<T>) -> Result<ApertureMacro, GerberParserError> {
 
     // Extract the macro name from the AM command
     let re_macro = Regex::new(r"%AM([^*%]*)").unwrap();
@@ -319,121 +328,390 @@ fn parse_aperture_macro_definition<T: Read>(first_line: &str, parser_context: &m
             continue;
         }
 
-        // Split the line by commas and convert to a vector of strings
-        let params: Vec<&str> = line.trim_end_matches('*').split(',').collect();
+        struct LineState {
+            is_last_line: bool, 
+            has_continuation_line: bool,
+        }
+
+        /// value should be a pre-trimmed string.
+        fn parse_macro_decimal(value: &str) -> Result<MacroDecimal, GerberParserError> {
+            let captures = RE_MACRO_DECIMAL.captures(&value).ok_or(GerberParserError::InvalidMacroDefinition("Invalid parameter".to_string()))?;
+            if let Some(value_match) = captures.name("value") {
+                let value = value_match.as_str().parse::<f64>().map_err(|_| GerberParserError::InvalidMacroDefinition("Invalid decimal".to_string()))?;
+                Ok(MacroDecimal::Value(value))
+            } else if let Some(value_match) = captures.name("variable") {
+                let variable = value_match.as_str().trim_start_matches('$').parse::<u32>().map_err(|_|GerberParserError::InvalidMacroDefinition("Invalid variable".to_string()))?;
+                Ok(MacroDecimal::Variable(variable))
+            } else if let Some(value_match) = captures.name("expression") {
+                let variable = value_match.as_str().to_string();
+                Ok(MacroDecimal::Expression(variable))
+            } else {
+                // it has to match one of the named captures.
+                unreachable!()
+            }
+        }
+
+        /// value should be a pre-trimmed string.
+        fn parse_macro_boolean(value: &str) -> Result<MacroBoolean, GerberParserError> {
+            let captures = RE_MACRO_BOOLEAN.captures(&value).ok_or(GerberParserError::InvalidMacroDefinition("Invalid parameter".to_string()))?;
+            if let Some(value_match) = captures.name("value") {
+                let value = value_match.as_str().parse::<u8>().map_err(|_| GerberParserError::InvalidMacroDefinition("Invalid boolean".to_string()))?;
+                Ok(MacroBoolean::Value(value == 1))
+            } else if let Some(value_match) = captures.name("variable") {
+                let variable = value_match.as_str().trim_start_matches('$').parse::<u32>().map_err(|_|GerberParserError::InvalidMacroDefinition("Invalid variable".to_string()))?;
+                Ok(MacroBoolean::Variable(variable))
+            } else if let Some(value_match) = captures.name("expression") {
+                let variable = value_match.as_str().to_string();
+                Ok(MacroBoolean::Expression(variable))
+            } else {
+                // it has to match one of the named captures.
+                unreachable!()
+            }
+        }
+
+        /// value should be a pre-trimmed string.
+        fn parse_macro_integer(value: &str) -> Result<MacroInteger, GerberParserError> {
+            let captures = RE_MACRO_UNSIGNED_INTEGER.captures(&value).ok_or(GerberParserError::InvalidMacroDefinition("Invalid parameter".to_string()))?;
+            if let Some(value_match) = captures.name("value") {
+                let value = value_match.as_str().parse::<u32>().map_err(|_| GerberParserError::InvalidMacroDefinition("Invalid integer".to_string()))?;
+                Ok(MacroInteger::Value(value))
+            } else if let Some(value_match) = captures.name("variable") {
+                let variable = value_match.as_str().trim_start_matches('$').parse::<u32>().map_err(|_|GerberParserError::InvalidMacroDefinition("Invalid variable".to_string()))?;
+                Ok(MacroInteger::Variable(variable))
+            } else if let Some(value_match) = captures.name("expression") {
+                let variable = value_match.as_str().to_string();
+                Ok(MacroInteger::Expression(variable))
+            } else {
+                // it has to match one of the named captures.
+                unreachable!()
+            }
+        }
+
+        fn update_line_state(line_state: &mut LineState, line: &str) {
+            if line.ends_with("*%") {
+                line_state.is_last_line = true;
+                line_state.has_continuation_line = false;
+            } else {
+                line_state.is_last_line = false;
+                line_state.has_continuation_line = !line.ends_with("*");
+            }
+        }
+        
+        fn trim_line(line: &str) -> &str {
+            line.trim_end_matches(&['*','%'])
+        }
+
+        /// Split the line by commas and convert to a vector of strings
+        /// trimming whitespace from each parameter
+        fn line_to_params(line: &str) -> Vec<String> {
+            line
+                .split(',')
+                .map(|param| param.trim().into())
+                .filter(|param: &String|!param.is_empty())
+                .collect()
+        }
+
+        fn read_params<T: Read>(params: &mut Vec<String>, parser_context: &mut ParserContext<T>, line_state: &mut LineState) -> Result<(), GerberParserError> {
+            // read all the parameters, which could be split over multiple lines
+            while line_state.has_continuation_line {
+                if let Some(continuation_line) = parser_context.next() {
+                    let continuation_line = continuation_line?;
+                    update_line_state(line_state, &continuation_line);
+
+                    let continuation_line = trim_line(&continuation_line);
+
+                    let extra_params = line_to_params(continuation_line);
+                    params.extend(extra_params);
+                } else {
+                    break
+                }
+            }
+
+            Ok(())
+        }
+
+        let mut line_state = LineState {
+            is_last_line: false,
+            has_continuation_line: false,
+        };
+        
+        update_line_state(&mut line_state, &line);
+        
+        let trimmed_line = trim_line(&line);
+        if trimmed_line.starts_with("0 ") {
+            // Handle the special-case comment primitive
+            
+            // Gerber spec: 4.5.1.2 "The comment primitive starts with the ‘0’ code followed by a space and then a
+            // single-line text string"
+            content.push(MacroContent::Comment(trimmed_line[2..].trim().to_string()));
+            continue;
+        }
+        
+        let mut params: Vec<String> = line_to_params(trimmed_line);
 
         if params.is_empty() {
             continue;
         }
-
+        
+        
         // Parse outline primitive (type 4)
-        // TODO would be nice to have constants for the values in gerber-types. e.g. const APERTURE_MACRO_TYPE_OUTLINE: u8 = 4;
+        // TODO would be nice to have constants for the values in `gerber-types`. e.g. const APERTURE_MACRO_TYPE_OUTLINE: u8 = 4;
         match params[0].parse::<u8>() {
-            Ok(4) => {
-                // Handle outline primitive
-                if params.len() < 3 {
-                    return Err(GerberParserError::InvalidMacroDefinition("expected 3 parameters for outline".to_string()));
+            Ok(1) => {
+                // Handle circle primitive
+                read_params(&mut params, parser_context, &mut line_state)?;
+                let param_count_excluding_code = params.len() - 1;
+
+                if !(4..=5).contains(&param_count_excluding_code) {
+                    // exposure + diameter + center x + center y [ + rotation]
+                    return Err(GerberParserError::InvalidMacroDefinition("expected 4-5 parameters for circle".to_string()));
                 }
 
-                // Parse exposure and number of points
-                let exposure = params[1].trim() == "1";
-                let num_points = params[2].trim().parse::<usize>().map_err(|_|
+                // reverse the params, so we can pop them one at a time.
+                params.reverse();
+                let _primitive_code = params.pop();
+
+                let exposure_str = params.pop().unwrap().trim().to_string();
+                let exposure = parse_macro_boolean(&exposure_str)?;
+                
+                let diameter_str = params.pop().unwrap().trim().to_string();
+                let diameter = parse_macro_decimal(&diameter_str)?;
+                
+                let center_x_str = params.pop().unwrap().trim().to_string();
+                let center_x = parse_macro_decimal(&center_x_str)?;
+                
+                let center_y_str = params.pop().unwrap().trim().to_string();
+                let center_y = parse_macro_decimal(&center_y_str)?;
+
+
+                // Parse rotation angle from the last line
+                let angle = params
+                    .pop()
+                    .map(|angle_str|{
+                        parse_macro_decimal(&angle_str)
+                    })
+                    .transpose()?;
+
+                let circle = CirclePrimitive {
+                    exposure,
+
+                    diameter,
+                    center: (center_x, center_y),
+                    angle,
+                };
+                content.push(MacroContent::Circle(circle));
+            }
+            Ok(4) => {
+                // Handle outline primitive
+                read_params(&mut params, parser_context, &mut line_state)?;
+                let param_count_excluding_code = params.len() - 1;
+                
+                if param_count_excluding_code < 6 {
+                    // exposure + #vertices + start x + start y [+ (x,y)] + end x + end y [ + rotation]
+                    return Err(GerberParserError::InvalidMacroDefinition("expected minimum of 6 parameters for outline".to_string()));
+                }
+                
+                // reverse the params, so we can pop them one at a time.
+                params.reverse();
+                let _primitive_code = params.pop();
+               
+                let exposure_str = params.pop().unwrap().trim().to_string();
+                let exposure = parse_macro_boolean(&exposure_str)?;
+
+                let num_vertices  = params.pop().unwrap().trim().parse::<u32>().map_err(|_|
                     GerberParserError::ApertureDefinitionParseFailed {
-                        aperture_definition_str: line
+                        aperture_definition_str: line.clone()
                     })?;
 
-                // Collect points from subsequent lines
+                // Collect points from remaining parameters
                 let mut points = Vec::new();
+                
                 // `num_points` is actually one fewer than the number of points in the macro definition, so we use `<=` here
-                while points.len() <= num_points {
-                    if let Some(point_line) = parser_context.next() {
-                        let point_line = point_line?;
-                        let coords: Vec<&str> = point_line.trim().trim_end_matches('*').split(',').collect();
-                        if coords.len() >= 2 {
-                            let x = coords[0].trim().parse::<f64>().map_err(|_|
-                                GerberParserError::ApertureDefinitionParseFailed {
-                                    aperture_definition_str: point_line.clone()
-                                })?;
-                            let y = coords[1].trim().parse::<f64>().map_err(|_|
-                                GerberParserError::ApertureDefinitionParseFailed {
-                                    aperture_definition_str: point_line.clone()
-                                })?;
-                            points.push((MacroDecimal::Value(x), MacroDecimal::Value(y)));
-                        }
+                while points.len() <= num_vertices as usize {
+                    if params.len() >= 2 {
+                        let x_str = params.pop().unwrap().trim().to_string();
+                        let x = parse_macro_decimal(&x_str)?;
+                        let y_str = params.pop().unwrap().trim().to_string();
+                        let y = parse_macro_decimal(&y_str)?;
+
+                        points.push((x, y));
                     } else {
                         return Err(GerberParserError::InvalidMacroDefinition("Missing outline point line.".to_string()));
                     }
                 }
-
+                
                 // Parse rotation angle from the last line
-                if let Some(angle_line) = parser_context.next() {
-                    let angle_line = angle_line?;
-                    let angle = angle_line.trim().trim_end_matches('*').parse::<f64>().unwrap_or(0.0);
+                let angle = params
+                    .pop()
+                    .map(|angle_str|{
+                        angle_str.trim().parse::<f64>()
+                            .map_err(|_|GerberParserError::InvalidMacroDefinition("Invalid angle parameter".to_string()))
+                    })
+                    .transpose()?
+                    .unwrap_or(0.0);
 
-                    let outline = OutlinePrimitive {
-                        exposure,
-                        points,
-                        angle: MacroDecimal::Value(angle),
-                    };
+                let outline = OutlinePrimitive {
+                    exposure,
+                    points,
+                    angle: MacroDecimal::Value(angle),
+                };
 
-                    content.push(MacroContent::Outline(outline));
-                } else {
-                    return Err(GerberParserError::InvalidMacroDefinition("Missing angle line".to_string()));
-                }
-                break 
+                content.push(MacroContent::Outline(outline));
             }
             Ok(5) => {
                 // Handle polygon primitive
-                if params.len() < 7 {
-                    return Err(GerberParserError::InvalidMacroDefinition("Expected 7 parameters for polygon".to_string()));
+                read_params(&mut params, parser_context, &mut line_state)?;
+                let param_count_excluding_code = params.len() - 1;
+
+                if !(5..=6).contains(&param_count_excluding_code) {
+                    // exposure + #vertices + center x + center y + diameter [ + rotation]
+                    return Err(GerberParserError::InvalidMacroDefinition("Expected 5-6 parameters for polygon".to_string()));
                 }
 
-                let exposure = params[1].parse::<u8>().map_err(|_|
-                    GerberParserError::ApertureDefinitionParseFailed {
-                        aperture_definition_str: line.clone()
-                    })? == 1;
-                let vertices = params[2].parse::<u8>().map_err(|_|
-                    GerberParserError::ApertureDefinitionParseFailed {
-                        aperture_definition_str: line.clone()
-                    })?;
-                let center_x = MacroDecimal::Value(params[3].parse::<f64>().map_err(|_|
-                    GerberParserError::ApertureDefinitionParseFailed {
-                        aperture_definition_str: line.clone()
-                    })?);
-                let center_y = MacroDecimal::Value(params[4].parse::<f64>().map_err(|_|
-                    GerberParserError::ApertureDefinitionParseFailed {
-                        aperture_definition_str: line.clone()
-                    })?);
-                let diameter = MacroDecimal::Value(params[5].parse::<f64>().map_err(|_|
-                    GerberParserError::ApertureDefinitionParseFailed {
-                        aperture_definition_str: line.clone()
-                    })?);
-                let angle = MacroDecimal::Value(params[6].trim_end_matches("*%").parse::<f64>().map_err(|_|
-                    GerberParserError::ApertureDefinitionParseFailed {
-                        aperture_definition_str: line.clone()
-                    })?);
+                // reverse the params, so we can pop them one at a time.
+                params.reverse();
+                let _primitive_code = params.pop();
 
-                content.push(MacroContent::Polygon(PolygonPrimitive {
+                let exposure_str = params.pop().unwrap().trim().to_string();
+                let exposure = parse_macro_boolean(&exposure_str)?;
+
+                let vertices_str = params.pop().unwrap().trim().to_string();
+                let vertices = parse_macro_integer(&vertices_str)?;
+                
+                let center_x_str = params.pop().unwrap().trim().to_string();
+                let center_x = parse_macro_decimal(&center_x_str)?;
+
+                let center_y_str = params.pop().unwrap().trim().to_string();
+                let center_y = parse_macro_decimal(&center_y_str)?;
+                
+                let diameter_str = params.pop().unwrap().trim().to_string();
+                let diameter = parse_macro_decimal(&diameter_str)?;
+                
+                // Parse rotation angle from the last parameter
+                let angle = params
+                    .pop()
+                    .map(|angle_str|{
+                        parse_macro_decimal(&angle_str)
+                    })
+                    .transpose()?
+                    .unwrap_or(MacroDecimal::Value(0.0));
+
+                let polygon_primitive = PolygonPrimitive {
                     exposure,
                     vertices,
                     center: (center_x, center_y),
                     diameter,
                     angle,
-                }));
-                break
+                };
+
+                content.push(MacroContent::Polygon(polygon_primitive));
             },
-            _ => {
-                // TODO support other primitives, like circle, rectangle, vector-line, center-line, etc.
-                while let Some(line_result) = parser_context.next() {
-                    let line = line_result?;
-                    let line = line.trim();
-                    if line.ends_with("*%") {
-                        break;
-                    }
+            Ok(20) => {
+                // Vector-line primitive
+                read_params(&mut params, parser_context, &mut line_state)?;
+                let param_count_excluding_code = params.len() - 1;
+
+                if !(6..=7).contains(&param_count_excluding_code) {
+                    // exposure + width + start x + start y + end x + end y [ + rotation]
+                    return Err(GerberParserError::InvalidMacroDefinition("Expected 6-7 parameters for vector-line".to_string()));
                 }
+                
+                // reverse the params, so we can pop them one at a time.
+                params.reverse();
+                let _primitive_code = params.pop();
+
+                let exposure_str = params.pop().unwrap().trim().to_string();
+                let exposure = parse_macro_boolean(&exposure_str)?;
+
+                let width_str = params.pop().unwrap().trim().to_string();
+                let width = parse_macro_decimal(&width_str)?;
+
+                let start_x_str = params.pop().unwrap().trim().to_string();
+                let start_x = parse_macro_decimal(&start_x_str)?;
+
+                let start_y_str = params.pop().unwrap().trim().to_string();
+                let start_y = parse_macro_decimal(&start_y_str)?;
+
+                let end_x_str = params.pop().unwrap().trim().to_string();
+                let end_x = parse_macro_decimal(&end_x_str)?;
+
+                let end_y_str = params.pop().unwrap().trim().to_string();
+                let end_y = parse_macro_decimal(&end_y_str)?;
+                
+                // Parse rotation angle from the last parameter
+                let angle = params
+                    .pop()
+                    .map(|angle_str|{
+                        parse_macro_decimal(&angle_str)
+                    })
+                    .transpose()?
+                    .unwrap_or(MacroDecimal::Value(0.0));
+
+                let vector_line = VectorLinePrimitive {
+                    exposure,
+                    width,
+                    start: (start_x, start_y),
+                    end: (end_x, end_y),
+                    angle,
+                };
+                content.push(MacroContent::VectorLine(vector_line));
+            }
+            Ok(21) => {
+                // Center-line primitive
+                read_params(&mut params, parser_context, &mut line_state)?;
+                let param_count_excluding_code = params.len() - 1;
+
+                if !(5..=6).contains(&param_count_excluding_code) {
+                    // exposure + width + height + center x + center y [ + rotation]
+                    return Err(GerberParserError::InvalidMacroDefinition("Expected 5-6 parameters for center-line".to_string()));
+                }
+
+                // reverse the params, so we can pop them one at a time.
+                params.reverse();
+                let _primitive_code = params.pop();
+
+                let exposure_str = params.pop().unwrap().trim().to_string();
+                let exposure = parse_macro_boolean(&exposure_str)?;
+
+                let width_str = params.pop().unwrap().trim().to_string();
+                let width = parse_macro_decimal(&width_str)?;
+
+                let height_str = params.pop().unwrap().trim().to_string();
+                let height = parse_macro_decimal(&height_str)?;
+
+                let center_x_str = params.pop().unwrap().trim().to_string();
+                let center_x = parse_macro_decimal(&center_x_str)?;
+
+                let center_y_str = params.pop().unwrap().trim().to_string();
+                let center_y = parse_macro_decimal(&center_y_str)?;
+
+                // Parse rotation angle from the last parameter
+                let angle = params
+                    .pop()
+                    .map(|angle_str|{
+                        parse_macro_decimal(&angle_str)
+                    })
+                    .transpose()?
+                    .unwrap_or(MacroDecimal::Value(0.0));
+
+                let center_line = CenterLinePrimitive {
+                    exposure,
+                    dimensions: (width, height),
+                    center: (center_x, center_y),
+                    angle,
+                };
+                content.push(MacroContent::CenterLine(center_line));
+            }
+            _ => {
+                read_params(&mut params, parser_context, &mut line_state)?;
+                log::error!("Unsupported primitive type: {}, line: {}, params: {}", params[0], line, params[1..].join(", "));
+
                 return Err(GerberParserError::UnsupportedMacroDefinition)
             },
-            
+        }
+        
+        if line_state.is_last_line {
+            break;
         }
     }
 
@@ -505,93 +783,99 @@ fn parse_aperture_defs(line: &str, gerber_doc: &GerberDoc) -> Result<(i32, Apert
     let Some(captures) = RE_APERTURE.captures(line) else {
         return Err(GerberParserError::NoRegexMatch{regex: RE_APERTURE.clone()})
     };
-    
+
+    // Sync captures with [`RE_APERTURE`] definition.
+    // `%ADD([0-9]+)([._$a-zA-Z][._$a-zA-Z0-9]{0,126})(?:,\s?(.*))?\*%`
+    const CAPTURE_APERTURE_CODE: usize = 1;
+    const CAPTURE_APERTURE_NAME: usize = 2;
+    const CAPTURE_APERTURE_ARGS: usize = 3;
+
     // Parse aperture code
-    let code_str = captures.get(1)
-        .ok_or(GerberParserError::MissingRegexCapture{ regex: RE_APERTURE.clone(), capture_index: 1})?
+    let code_str = captures.get(CAPTURE_APERTURE_CODE)
+        .ok_or(GerberParserError::MissingRegexCapture{ regex: RE_APERTURE.clone(), capture_index: CAPTURE_APERTURE_CODE})?
         .as_str();
     let code = parse_aperture_code(code_str)?;
 
-    let aperture_def = captures.get(2)
-        .ok_or(GerberParserError::MissingRegexCapture{regex: RE_APERTURE.clone(), capture_index: 2})?
+    let aperture_name = captures.get(CAPTURE_APERTURE_NAME)
+        .ok_or(GerberParserError::MissingRegexCapture{regex: RE_APERTURE.clone(), capture_index: CAPTURE_APERTURE_NAME})?
         .as_str();
 
-    if !aperture_def.contains(',') {
-        return Ok((code, Aperture::Other(aperture_def.to_string())));
-    }
-
-    let aperture_kind = captures.get(3)
-        .ok_or(GerberParserError::MissingRegexCapture{regex: RE_APERTURE.clone(), capture_index: 3})?
-        .as_str();
-
-    let aperture_args: Vec<&str> = captures.get(4)
-        .ok_or(GerberParserError::MissingRegexCapture{regex: RE_APERTURE.clone(), capture_index: 4})?
-        .as_str().split("X").collect();
-    
     if gerber_doc.apertures.contains_key(&code){
         return Err(GerberParserError::ApertureDefinedTwice{aperture_code: code});
     }
 
-    //log::debug!("The code is {}, and the aperture type is {} with params {:?}", code, aperture_type, aperture_args);
-    match aperture_kind {
-        "C" => Ok((code, Aperture::Circle(Circle {
-            diameter: aperture_args[0].trim().parse::<f64>()
+    let aperture_args_str: Option<&str> = captures.get(CAPTURE_APERTURE_ARGS).map(|m| m.as_str());
+
+    let is_macro = aperture_name.len() > 1;
+    if is_macro {
+        return Ok((code, Aperture::Macro(aperture_name.to_string(), aperture_args_str.map(|m| m.to_string()))));
+    }
+
+    let aperture_args_split: Option<Vec<&str>> = aperture_args_str
+        .map(|m| m.split('X').collect());
+
+    match (aperture_name, aperture_args_split) {
+        ("C", Some(args)) => Ok((code, Aperture::Circle(Circle {
+            diameter: args[0].trim().parse::<f64>()
                 .map_err(|_| {
                     GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
                 })?,
-            hole_diameter: if aperture_args.len() > 1 {
-                Some(aperture_args[1].trim().parse::<f64>()
+            hole_diameter: if args.len() > 1 {
+                Some(args[1].trim().parse::<f64>()
                     .map_err(|_| {
                         GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
                     })?
                 )
             } else { None }
         }))),
-        "R" => Ok((code, Aperture::Rectangle(Rectangular {
-            x: parse_coord::<f64>(aperture_args[0])?,
-            y: parse_coord::<f64>(aperture_args[1])?,
-            hole_diameter: if aperture_args.len() > 2 {
-                Some(aperture_args[2].trim().parse::<f64>()
+        ("R", Some(args)) => Ok((code, Aperture::Rectangle(Rectangular {
+            x: parse_coord::<f64>(args[0])?,
+            y: parse_coord::<f64>(args[1])?,
+            hole_diameter: if args.len() > 2 {
+                Some(args[2].trim().parse::<f64>()
                     .map_err(|_| {
                         GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
                     })?
                 )
             } else { None }
         }))),
-        "O" => Ok((code, Aperture::Obround(Rectangular {
-            x: parse_coord::<f64>(aperture_args[0])?,
-            y: parse_coord::<f64>(aperture_args[1])?,
-            hole_diameter: if aperture_args.len() > 2 {
-                Some(aperture_args[2].trim().parse::<f64>()
+        ("O", Some(args)) => Ok((code, Aperture::Obround(Rectangular {
+            x: parse_coord::<f64>(args[0])?,
+            y: parse_coord::<f64>(args[1])?,
+            hole_diameter: if args.len() > 2 {
+                Some(args[2].trim().parse::<f64>()
                     .map_err(|_| {
                         GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
                     })?)
             } else { None }
         }))),
         // note that for polygon we HAVE TO specify rotation if we want to add a hole
-        "P" => Ok((code, Aperture::Polygon(Polygon {
-            diameter: aperture_args[0].trim().parse::<f64>()
+        ("P", Some(args)) => Ok((code, Aperture::Polygon(Polygon {
+            diameter: args[0].trim().parse::<f64>()
                 .map_err(|_| {
                     GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
                 })?,
-            vertices: aperture_args[1].trim().parse::<u8>()
+            vertices: args[1].trim().parse::<u8>()
                 .map_err(|_| {
                     GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
                 })?,
-            rotation: if aperture_args.len() > 2 {
-                Some(aperture_args[2].trim().parse::<f64>()
+            rotation: if args.len() > 2 {
+                Some(args[2].trim().parse::<f64>()
                     .map_err(|_| {
                         GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
                     })?)
             } else { None },
-            hole_diameter: if aperture_args.len() > 3 {
-                Some(aperture_args[3].trim().parse::<f64>()
+            hole_diameter: if args.len() > 3 {
+                Some(args[3].trim().parse::<f64>()
                     .map_err(|_| {
                         GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
                     })?)
             } else { None }
         }))),
-        unknown_type => { 
+        (aperture_name, None) if ["C", "R", "O", "P"].contains(&aperture_name) => {
+            Err(GerberParserError::MissingApertureDefinitionArgs{aperture_code: code, aperture_name: aperture_name.to_string()})
+        }
+        (unknown_type, _args) => {
             Err(GerberParserError::UnknownApertureType{type_str: unknown_type.to_string()})
         }
     }

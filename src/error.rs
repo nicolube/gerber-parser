@@ -116,6 +116,8 @@ pub enum GerberParserError {
     UnsupportedMacroDefinition,
     #[error("Invalid macro definition. cause: '{0}'")]
     InvalidMacroDefinition(String),
+    #[error("Missing aperture definition arguments. code: '{aperture_code}', name: '{aperture_name}")]
+    MissingApertureDefinitionArgs { aperture_code: i32, aperture_name: String },
 }
 
 
