@@ -427,7 +427,7 @@ fn parse_aperture_macro_definition<T: Read>(first_line: &str, parser_context: &m
                 while let Some(line_result) = parser_context.next() {
                     let line = line_result?;
                     let line = line.trim();
-                    if line.ends_with("%*") {
+                    if line.ends_with("*%") {
                         break;
                     }
                 }
