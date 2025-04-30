@@ -332,61 +332,7 @@ fn parse_aperture_macro_definition<T: Read>(first_line: &str, parser_context: &m
             is_last_line: bool, 
             has_continuation_line: bool,
         }
-
-        /// value should be a pre-trimmed string.
-        fn parse_macro_decimal(value: &str) -> Result<MacroDecimal, GerberParserError> {
-            let captures = RE_MACRO_DECIMAL.captures(&value).ok_or(GerberParserError::InvalidMacroDefinition("Invalid parameter".to_string()))?;
-            if let Some(value_match) = captures.name("value") {
-                let value = value_match.as_str().parse::<f64>().map_err(|_| GerberParserError::InvalidMacroDefinition("Invalid decimal".to_string()))?;
-                Ok(MacroDecimal::Value(value))
-            } else if let Some(value_match) = captures.name("variable") {
-                let variable = value_match.as_str().trim_start_matches('$').parse::<u32>().map_err(|_|GerberParserError::InvalidMacroDefinition("Invalid variable".to_string()))?;
-                Ok(MacroDecimal::Variable(variable))
-            } else if let Some(value_match) = captures.name("expression") {
-                let variable = value_match.as_str().to_string();
-                Ok(MacroDecimal::Expression(variable))
-            } else {
-                // it has to match one of the named captures.
-                unreachable!()
-            }
-        }
-
-        /// value should be a pre-trimmed string.
-        fn parse_macro_boolean(value: &str) -> Result<MacroBoolean, GerberParserError> {
-            let captures = RE_MACRO_BOOLEAN.captures(&value).ok_or(GerberParserError::InvalidMacroDefinition("Invalid parameter".to_string()))?;
-            if let Some(value_match) = captures.name("value") {
-                let value = value_match.as_str().parse::<u8>().map_err(|_| GerberParserError::InvalidMacroDefinition("Invalid boolean".to_string()))?;
-                Ok(MacroBoolean::Value(value == 1))
-            } else if let Some(value_match) = captures.name("variable") {
-                let variable = value_match.as_str().trim_start_matches('$').parse::<u32>().map_err(|_|GerberParserError::InvalidMacroDefinition("Invalid variable".to_string()))?;
-                Ok(MacroBoolean::Variable(variable))
-            } else if let Some(value_match) = captures.name("expression") {
-                let variable = value_match.as_str().to_string();
-                Ok(MacroBoolean::Expression(variable))
-            } else {
-                // it has to match one of the named captures.
-                unreachable!()
-            }
-        }
-
-        /// value should be a pre-trimmed string.
-        fn parse_macro_integer(value: &str) -> Result<MacroInteger, GerberParserError> {
-            let captures = RE_MACRO_UNSIGNED_INTEGER.captures(&value).ok_or(GerberParserError::InvalidMacroDefinition("Invalid parameter".to_string()))?;
-            if let Some(value_match) = captures.name("value") {
-                let value = value_match.as_str().parse::<u32>().map_err(|_| GerberParserError::InvalidMacroDefinition("Invalid integer".to_string()))?;
-                Ok(MacroInteger::Value(value))
-            } else if let Some(value_match) = captures.name("variable") {
-                let variable = value_match.as_str().trim_start_matches('$').parse::<u32>().map_err(|_|GerberParserError::InvalidMacroDefinition("Invalid variable".to_string()))?;
-                Ok(MacroInteger::Variable(variable))
-            } else if let Some(value_match) = captures.name("expression") {
-                let variable = value_match.as_str().to_string();
-                Ok(MacroInteger::Expression(variable))
-            } else {
-                // it has to match one of the named captures.
-                unreachable!()
-            }
-        }
-
+        
         fn update_line_state(line_state: &mut LineState, line: &str) {
             if line.ends_with("*%") {
                 line_state.is_last_line = true;
@@ -400,17 +346,7 @@ fn parse_aperture_macro_definition<T: Read>(first_line: &str, parser_context: &m
         fn trim_line(line: &str) -> &str {
             line.trim_end_matches(&['*','%'])
         }
-
-        /// Split the line by commas and convert to a vector of strings
-        /// trimming whitespace from each parameter
-        fn line_to_params(line: &str) -> Vec<String> {
-            line
-                .split(',')
-                .map(|param| param.trim().into())
-                .filter(|param: &String|!param.is_empty())
-                .collect()
-        }
-
+        
         fn read_params<T: Read>(params: &mut Vec<String>, parser_context: &mut ParserContext<T>, line_state: &mut LineState) -> Result<(), GerberParserError> {
             // read all the parameters, which could be split over multiple lines
             while line_state.has_continuation_line {
@@ -808,7 +744,25 @@ fn parse_aperture_defs(line: &str, gerber_doc: &GerberDoc) -> Result<(i32, Apert
 
     let is_macro = aperture_name.len() > 1;
     if is_macro {
-        return Ok((code, Aperture::Macro(aperture_name.to_string(), aperture_args_str.map(|m| m.to_string()))));
+        
+        let optional_params: Option<Vec<MacroDecimal>> = aperture_args_str.map(|line|{
+            let parse_results = line_to_args(line)
+                .iter()
+                .map(|param| {
+                    let arg_str = param.trim().to_string();
+                    parse_macro_decimal(&arg_str)
+                })
+                .collect::<Vec<_>>();
+            
+            parse_results.into_iter().try_fold(vec![], |mut args, foo| {
+                let arg = foo?;
+                args.push(arg);
+                Ok(args)
+            })
+        })
+            .transpose()?;
+        
+        return Ok((code, Aperture::Macro(aperture_name.to_string(), optional_params)));
     }
 
     let aperture_args_split: Option<Vec<&str>> = aperture_args_str
@@ -1280,4 +1234,76 @@ pub fn coordinates_offset_from_gerber(
     CoordinateOffset::new(CoordinateNumber::new(x_as_int), CoordinateNumber::new(y_as_int), fs)
 }
 
+/// Split the line by commas and convert to a vector of strings
+/// trimming whitespace from each parameter
+fn line_to_params(line: &str) -> Vec<String> {
+    line
+        .split(',')
+        .map(|param| param.trim().into())
+        .filter(|param: &String|!param.is_empty())
+        .collect()
+}
 
+/// Split the line by X and convert to a vector of strings
+/// trimming whitespace from each parameter
+fn line_to_args(line: &str) -> Vec<String> {
+    line
+        .split('X')
+        .map(|param| param.trim().into())
+        .filter(|param: &String|!param.is_empty())
+        .collect()
+}
+
+/// value should be a pre-trimmed string.
+fn parse_macro_decimal(value: &str) -> Result<MacroDecimal, GerberParserError> {
+    let captures = RE_MACRO_DECIMAL.captures(&value).ok_or(GerberParserError::InvalidMacroDefinition("Invalid parameter".to_string()))?;
+    if let Some(value_match) = captures.name("value") {
+        let value = value_match.as_str().parse::<f64>().map_err(|_| GerberParserError::InvalidMacroDefinition("Invalid decimal".to_string()))?;
+        Ok(MacroDecimal::Value(value))
+    } else if let Some(value_match) = captures.name("variable") {
+        let variable = value_match.as_str().trim_start_matches('$').parse::<u32>().map_err(|_|GerberParserError::InvalidMacroDefinition("Invalid variable".to_string()))?;
+        Ok(MacroDecimal::Variable(variable))
+    } else if let Some(value_match) = captures.name("expression") {
+        let variable = value_match.as_str().to_string();
+        Ok(MacroDecimal::Expression(variable))
+    } else {
+        // it has to match one of the named captures.
+        unreachable!()
+    }
+}
+
+/// value should be a pre-trimmed string.
+fn parse_macro_boolean(value: &str) -> Result<MacroBoolean, GerberParserError> {
+    let captures = RE_MACRO_BOOLEAN.captures(&value).ok_or(GerberParserError::InvalidMacroDefinition("Invalid parameter".to_string()))?;
+    if let Some(value_match) = captures.name("value") {
+        let value = value_match.as_str().parse::<u8>().map_err(|_| GerberParserError::InvalidMacroDefinition("Invalid boolean".to_string()))?;
+        Ok(MacroBoolean::Value(value == 1))
+    } else if let Some(value_match) = captures.name("variable") {
+        let variable = value_match.as_str().trim_start_matches('$').parse::<u32>().map_err(|_|GerberParserError::InvalidMacroDefinition("Invalid variable".to_string()))?;
+        Ok(MacroBoolean::Variable(variable))
+    } else if let Some(value_match) = captures.name("expression") {
+        let variable = value_match.as_str().to_string();
+        Ok(MacroBoolean::Expression(variable))
+    } else {
+        // it has to match one of the named captures.
+        unreachable!()
+    }
+}
+
+/// value should be a pre-trimmed string.
+fn parse_macro_integer(value: &str) -> Result<MacroInteger, GerberParserError> {
+    let captures = RE_MACRO_UNSIGNED_INTEGER.captures(&value).ok_or(GerberParserError::InvalidMacroDefinition("Invalid parameter".to_string()))?;
+    if let Some(value_match) = captures.name("value") {
+        let value = value_match.as_str().parse::<u32>().map_err(|_| GerberParserError::InvalidMacroDefinition("Invalid integer".to_string()))?;
+        Ok(MacroInteger::Value(value))
+    } else if let Some(value_match) = captures.name("variable") {
+        let variable = value_match.as_str().trim_start_matches('$').parse::<u32>().map_err(|_|GerberParserError::InvalidMacroDefinition("Invalid variable".to_string()))?;
+        Ok(MacroInteger::Variable(variable))
+    } else if let Some(value_match) = captures.name("expression") {
+        let variable = value_match.as_str().to_string();
+        Ok(MacroInteger::Expression(variable))
+    } else {
+        // it has to match one of the named captures.
+        unreachable!()
+    }
+}

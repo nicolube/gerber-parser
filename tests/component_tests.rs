@@ -948,7 +948,18 @@ M02*
         Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(expected_macro_1))),
         Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(ApertureDefinition::new(
             36,
-            Aperture::Macro("RoundRect".to_string(), Some("0.110250X0.114771X-0.214739X0.114729X0.214761X-0.114771X0.214739X-0.114729X-0.214761X0".to_string()))
+            Aperture::Macro("RoundRect".to_string(), Some(vec![
+                MacroDecimal::Value(0.110250),
+                MacroDecimal::Value(0.114771),
+                MacroDecimal::Value(-0.214739),
+                MacroDecimal::Value(0.114729),
+                MacroDecimal::Value(0.214761),
+                MacroDecimal::Value(-0.114771),
+                MacroDecimal::Value(0.214739),
+                MacroDecimal::Value(-0.114729),
+                MacroDecimal::Value(-0.214761),
+                MacroDecimal::Value(0.0),
+            ]))
         )))),
     ]);
 }
