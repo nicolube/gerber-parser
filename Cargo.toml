@@ -17,7 +17,7 @@ regex = "1"
 # use gerber-types with updates to support macro expressions
 # See https://github.com/dbrgn/gerber-types-rs/pull/35
 # See https://github.com/dbrgn/gerber-types-rs/pull/36
-gerber-types = { git = "https://github.com/hydra/gerber-types-rs.git", rev = "46ce811219c13a9bee5d17121b5f43ced7de15b2"}
+gerber-types = { git = "https://github.com/hydra/gerber-types-rs.git", rev = "d93cb0d4954c39cf17f924e003b5b396aeaaafd1"}
 stringreader = "0.1.1"
 thiserror = "1.0.64"
 lazy-regex = "3.3.0"
