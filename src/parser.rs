@@ -1,10 +1,10 @@
 use std::io::{Read, BufReader, BufRead, Lines};
 
-use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, MCode, DCode, Polarity, InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat, MacroDecimal, OutlinePrimitive, MacroContent, PolygonPrimitive, MacroBoolean, MacroInteger, CirclePrimitive, VectorLinePrimitive, CenterLinePrimitive};
+use crate::gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, MCode, DCode, Polarity, InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat, MacroDecimal, OutlinePrimitive, MacroContent, PolygonPrimitive, MacroBoolean, MacroInteger, CirclePrimitive, VectorLinePrimitive, CenterLinePrimitive};
 use regex::Regex;
 use std::str::Chars;
 use crate::error::GerberParserError;
-use crate::gerber_doc::{ GerberDoc};
+use crate::gerber_doc::GerberDoc;
 use lazy_regex::*;
 
 
