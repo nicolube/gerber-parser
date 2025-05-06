@@ -2,14 +2,12 @@ use gerber_parser::parser::parse_gerber;
 
 use gerber_types::GerberCode;
 use std::io::BufReader;
-use stringreader::StringReader;
 
 use std::str;
 
 fn main() {
-    let reader = BufReader::new(StringReader::new(
-        "    
-    %FSLAX23Y23*%
+    let reader = BufReader::new(
+        "%FSLAX23Y23*%
     %MOMM*%
 
     G04 Define the primive apertures*
@@ -57,8 +55,9 @@ fn main() {
 
 
     M02*
-    ",
-    ));
+    "
+        .as_bytes(),
+    );
 
     let mut file = Vec::<u8>::new();
     parse_gerber(reader)

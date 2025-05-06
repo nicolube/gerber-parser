@@ -19,8 +19,6 @@ repository = "https://github.com/NemoAndrea/gerber-parser"
 #gerber-types = "0.4.0"
 gerber-types = { git = "https://github.com/makerpnp/gerber-types-rs.git", rev = "41b8ab178fb6ee646dfba3f000db1b1b8a9ae167"}
 
-stringreader = "0.1.1"
-
 # errors
 thiserror = "2.0.12"
 
