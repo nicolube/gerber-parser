@@ -2,7 +2,10 @@
 name = "gerber_parser"
 version = "0.2.0"
 edition = "2018"
-authors = ["Nemo nemoandrea@outlook.com"]
+authors = [
+    "Nemo Andrea <nemoandrea@outlook.com>",
+    "Dominic Clifton <me@dominicclifton.name>"
+]
 description = "A simple gerber parser for the gerber-types crate"
 readme = "README.md" 
 documentation = "https://docs.rs/gerber_parser"
@@ -12,15 +15,20 @@ repository = "https://github.com/NemoAndrea/gerber-parser"
 
 
 [dependencies]
-regex = "1.11.1"
+# currently un-released, using latest gerber-types with updates to support macro expressions
 #gerber-types = "0.4.0"
-# use gerber-types with updates to support macro expressions
-# See https://github.com/dbrgn/gerber-types-rs/pull/35
-# See https://github.com/dbrgn/gerber-types-rs/pull/36
 gerber-types = { git = "https://github.com/makerpnp/gerber-types-rs.git", rev = "41b8ab178fb6ee646dfba3f000db1b1b8a9ae167"}
+
 stringreader = "0.1.1"
+
+# errors
 thiserror = "2.0.12"
+
+# regular expressions
+regex = "1.11.1"
 lazy-regex = "3.4.1"
+
+# logging
 log = "0.4.27"
 
 [dev-dependencies]
