@@ -31,13 +31,11 @@ impl GerberDoc {
         }
     }
 
-    /// Turns a GerberDoc into a &vec of gerber-types Commands
-    ///
-    /// Get a representation of a gerber document *purely* in terms of elements provided
+    /// Convert Self into a representation of a gerber document *purely* in terms of elements provided
     /// in the gerber-types rust crate.
     ///
-    /// This will ignore any errors encountered during parsing, to access those use `get_errors`
-    pub fn to_commands(self) -> Vec<Command> {
+    /// This will ignore any errors encountered during parsing, to access errors, use `get_errors` first.
+    pub fn into_commands(self) -> Vec<Command> {
         self.commands
             .into_iter()
             .filter_map(|element| match element {
@@ -47,12 +45,12 @@ impl GerberDoc {
             .collect()
     }
 
-    /// Similar to `to_commands()`, but does not consume the document, and returns refs
-    ///
     /// Get a representation of a gerber document *purely* in terms of elements provided
     /// in the gerber-types rust crate.
     ///
-    /// This will ignore any errors encountered during parsing, to access those use `get_errors`
+    /// Similar to `into_commands()`, but does not consume the Self, and returns references to Commands
+    ///
+    /// This will ignore any errors encountered during parsing, to access errors, use `get_errors`.
     pub fn as_commands(&self) -> Vec<&Command> {
         self.commands
             .iter()

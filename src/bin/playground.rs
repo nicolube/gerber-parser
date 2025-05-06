@@ -62,7 +62,7 @@ fn main() {
 
     let mut file = Vec::<u8>::new();
     parse_gerber(reader)
-        .to_commands()
+        .into_commands()
         .serialize(&mut file)
         .unwrap();
     println!("GBR >> {}", str::from_utf8(&file).unwrap())
