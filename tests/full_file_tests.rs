@@ -1,4 +1,4 @@
-use gerber_parser::parse_gerber;
+use gerber_parser::parse;
 mod utils;
 
 /// These tests are similar to those in reference_file_tests.rs, but the files below are
@@ -46,7 +46,10 @@ M02*
 ";
     let reader = utils::gerber_to_reader(&gbr_string);
 
-    let doc = parse_gerber(reader);
+    let result = parse(reader);
+    assert!(result.is_ok());
+
+    let doc = result.unwrap();
     doc.get_errors()
         .iter()
         .for_each(|x| println!("Error: {}", x));

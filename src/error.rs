@@ -2,8 +2,14 @@ use regex::Regex;
 use std::fmt::Formatter;
 use thiserror::Error;
 
+#[derive(Error, Debug)]
+pub enum ParseError {
+    #[error("IO Error parsing Gerber file: {0}")]
+    IoError(String),
+}
+
 #[derive(Error, Debug, Clone)]
-pub enum GerberParserError {
+pub enum ContentError {
     #[error("Document included a line that isn't valid.")]
     UnknownCommand {},
     #[error("Document included a line that isn't supported.")]
@@ -100,7 +106,7 @@ pub enum GerberParserError {
     },
 }
 
-impl GerberParserError {
+impl ContentError {
     pub fn to_with_context(
         self,
         line: Option<String>,
@@ -125,7 +131,7 @@ impl GerberParserError {
     }
 }
 
-impl PartialEq for GerberParserError {
+impl PartialEq for ContentError {
     /// Hack to simplify testing. Always returns false.
     fn eq(&self, _: &Self) -> bool {
         false
@@ -134,7 +140,7 @@ impl PartialEq for GerberParserError {
 
 #[derive(Error, Debug, PartialEq)]
 pub struct GerberParserErrorWithContext {
-    error: GerberParserError,
+    error: ContentError,
     line: Option<String>,
     line_num: Option<usize>,
 }

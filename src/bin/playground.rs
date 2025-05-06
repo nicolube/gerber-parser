@@ -1,4 +1,4 @@
-use gerber_parser::parse_gerber;
+use gerber_parser::parse;
 
 use gerber_types::GerberCode;
 use std::io::BufReader;
@@ -60,7 +60,8 @@ fn main() {
     );
 
     let mut file = Vec::<u8>::new();
-    parse_gerber(reader)
+    parse(reader)
+        .unwrap()
         .into_commands()
         .serialize(&mut file)
         .unwrap();

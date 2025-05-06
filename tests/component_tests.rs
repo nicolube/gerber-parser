@@ -1,8 +1,7 @@
 use ::std::collections::HashMap;
 use gerber_parser::GerberParserErrorWithContext;
 use gerber_parser::{
-    coordinates_from_gerber, coordinates_offset_from_gerber, parse_gerber,
-    partial_coordinates_from_gerber,
+    coordinates_from_gerber, coordinates_offset_from_gerber, parse, partial_coordinates_from_gerber,
 };
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureDefinition, ApertureFunction, ApertureMacro, Circle,
@@ -73,12 +72,12 @@ fn format_specification() {
     );
 
     assert_eq!(
-        parse_gerber(reader_fs_1).format_specification,
+        parse(reader_fs_1).unwrap().format_specification,
         Some(CoordinateFormat::new(1, 5))
     );
 
     assert_eq!(
-        parse_gerber(reader_fs_2).format_specification,
+        parse(reader_fs_2).unwrap().format_specification,
         Some(CoordinateFormat::new(3, 6))
     );
 }
@@ -109,8 +108,8 @@ fn units() {
     ",
     );
 
-    assert_eq!(parse_gerber(reader_mm).units, Some(Unit::Millimeters));
-    assert_eq!(parse_gerber(reader_in).units, Some(Unit::Inches));
+    assert_eq!(parse(reader_mm).unwrap().units, Some(Unit::Millimeters));
+    assert_eq!(parse(reader_in).unwrap().units, Some(Unit::Inches));
 }
 
 #[test]
@@ -142,7 +141,7 @@ fn G04_comments() {
         )))),
     ];
 
-    assert_eq!(filter_commands(parse_gerber(reader).commands), test_vec)
+    assert_eq!(filter_commands(parse(reader).unwrap().commands), test_vec)
 }
 
 #[test]
@@ -169,7 +168,7 @@ fn aperture_selection() {
             Ok(Command::FunctionCode(FunctionCode::DCode(DCode::SelectAperture(_)))) => true, _ => false}).collect()};
 
     assert_eq!(
-        filter_commands(parse_gerber(reader).commands),
+        filter_commands(parse(reader).unwrap().commands),
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::SelectAperture(22.into())
@@ -210,7 +209,7 @@ fn D01_interpolation_linear() {
 
     let fs = CoordinateFormat::new(2, 3);
     assert_eq!(
-        filter_commands(parse_gerber(reader).commands),
+        filter_commands(parse(reader).unwrap().commands),
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
@@ -259,7 +258,7 @@ fn D01_interpolation_circular() {
 
     let fs = CoordinateFormat::new(2, 3);
     assert_eq!(
-        filter_commands(parse_gerber(reader).commands),
+        filter_commands(parse(reader).unwrap().commands),
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
@@ -305,7 +304,7 @@ fn DO2_move_to_command() {
 
     let fs = CoordinateFormat::new(2, 3);
     assert_eq!(
-        filter_commands(parse_gerber(reader).commands),
+        filter_commands(parse(reader).unwrap().commands),
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Move(coordinates_from_gerber(0, -333, fs)))
@@ -342,7 +341,7 @@ fn DO3_flash_command() {
 
     let fs = CoordinateFormat::new(2, 3);
     assert_eq!(
-        filter_commands(parse_gerber(reader).commands),
+        filter_commands(parse(reader).unwrap().commands),
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Flash(coordinates_from_gerber(4000, -5000, fs)))
@@ -380,7 +379,7 @@ fn omitted_coordinate() {
 
     let fs = CoordinateFormat::new(2, 3);
     assert_eq!(
-        filter_commands(parse_gerber(reader).commands),
+        filter_commands(parse(reader).unwrap().commands),
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(
@@ -426,7 +425,7 @@ fn step_and_repeat() {
                 Ok(Command::ExtendedCode(ExtendedCode::StepAndRepeat(_))) => true, _ => false}).collect()};
 
     assert_eq!(
-        filter_commands(parse_gerber(reader).commands),
+        filter_commands(parse(reader).unwrap().commands),
         vec![
             Ok(Command::ExtendedCode(ExtendedCode::StepAndRepeat(
                 StepAndRepeat::Open {
@@ -468,7 +467,8 @@ fn aperture_definitions() {
     );
 
     // when
-    let doc = parse_gerber(reader);
+    let result = parse(reader);
+    let doc = result.unwrap();
     println!("{:?}", doc.commands);
     let aperture_definitions = doc.apertures;
 
@@ -578,7 +578,7 @@ fn TA_aperture_attributes() {
             Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(_))) => true, _ => false}).collect()};
 
     assert_eq!(
-        filter_commands(parse_gerber(reader).commands),
+        filter_commands(parse(reader).unwrap().commands),
         vec![
             Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
                 ApertureAttribute::ApertureFunction(ApertureFunction::WasherPad)
@@ -626,7 +626,7 @@ fn TF_file_attributes() {
             Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(_))) => true, _ => false}).collect()};
 
     assert_eq!(
-        filter_commands(parse_gerber(reader).commands),
+        filter_commands(parse(reader).unwrap().commands),
         vec![
             Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
                 FileAttribute::Part(Part::Array)
@@ -690,8 +690,8 @@ fn conflicting_aperture_codes() {
     M02*      
     ",
     );
-    let guy = parse_gerber(reader);
-    assert!(guy.get_errors().is_empty());
+    let doc = parse(reader).unwrap();
+    assert!(doc.get_errors().is_empty());
 }
 
 #[test]
@@ -705,8 +705,8 @@ fn missing_eof() {
     G04 We should have a MO2 at the end, but what if we forget it?*      
     ",
     );
-    let guy = parse_gerber(reader);
-    assert!(guy.get_errors().is_empty());
+    let doc = parse(reader).unwrap();
+    assert!(doc.get_errors().is_empty());
 }
 
 #[test]
@@ -722,8 +722,8 @@ fn multiple_unit_statements() {
     M02*  
     ",
     );
-    let guy = parse_gerber(reader);
-    assert!(guy.get_errors().is_empty());
+    let doc = parse(reader).unwrap();
+    assert!(doc.get_errors().is_empty());
 }
 
 #[test]
@@ -739,8 +739,8 @@ fn multiple_fs_statements() {
     M02*  
     ",
     );
-    let guy = parse_gerber(reader);
-    assert!(guy.get_errors().is_empty());
+    let doc = parse(reader).unwrap();
+    assert!(doc.get_errors().is_empty());
 }
 
 #[test]
@@ -759,8 +759,8 @@ fn nonexistent_aperture_selection() {
     M02*  
     ",
     );
-    let guy = parse_gerber(reader);
-    assert!(guy.get_errors().is_empty());
+    let doc = parse(reader).unwrap();
+    assert!(doc.get_errors().is_empty());
 }
 
 /// This statement should fail as this is not within the format specification (2 integer, 3 decimal)
@@ -782,8 +782,8 @@ fn coordinates_not_within_format() {
     ",
     );
 
-    let guy = parse_gerber(reader);
-    assert!(guy.get_errors().is_empty());
+    let doc = parse(reader).unwrap();
+    assert!(doc.get_errors().is_empty());
 }
 
 /// Test the D* statements, diptrace exports gerber files without the leading `0` on the `D0*` commands.
@@ -811,7 +811,7 @@ fn diptrace_Dxx_statements() {
     );
 
     // when
-    let commands = parse_gerber(reader).commands;
+    let commands = parse(reader).unwrap().commands;
     dump_commands(&commands);
 
     // then
@@ -896,7 +896,7 @@ fn test_outline_macro_and_aperture_definition() {
     };
 
     // when
-    let commands = parse_gerber(reader).commands;
+    let commands = parse(reader).unwrap().commands;
     dump_commands(&commands);
 
     // then
@@ -959,7 +959,7 @@ fn test_polygon_macro_and_aperture_definition() {
     };
 
     // when
-    let commands = parse_gerber(reader).commands;
+    let commands = parse(reader).unwrap().commands;
     dump_commands(&commands);
 
     // then
@@ -1012,7 +1012,7 @@ M02*
     );
 
     // when
-    let commands = parse_gerber(reader).commands;
+    let commands = parse(reader).unwrap().commands;
     dump_commands(&commands);
 
     // then
@@ -1231,7 +1231,7 @@ M02*
     };
 
     // when
-    let commands = parse_gerber(reader).commands;
+    let commands = parse(reader).unwrap().commands;
     dump_commands(&commands);
 
     // then

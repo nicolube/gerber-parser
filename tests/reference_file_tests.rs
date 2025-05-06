@@ -1,4 +1,4 @@
-use gerber_parser::parse_gerber;
+use gerber_parser::parse;
 mod utils;
 
 /// All files in these tests are taken from the Ucamco 20220409 file format examples
@@ -31,7 +31,7 @@ fn two_square_boxes_to_rust() {
     M02*
 ";
     let reader = utils::gerber_to_reader(&gbr_string);
-    parse_gerber(reader);
+    parse(reader).unwrap();
 }
 
 #[test]
@@ -57,7 +57,7 @@ M02*
 ";
     let reader = utils::gerber_to_reader(&gbr_string);
 
-    assert_eq!(gbr_string, utils::gerber_doc_to_str(parse_gerber(reader)))
+    assert_eq!(gbr_string, utils::gerber_doc_to_str(parse(reader).unwrap()))
 }
 
 #[test]
@@ -143,7 +143,7 @@ X28750000Y28750000D03*
 M02*      
 ";
     let reader = utils::gerber_to_reader(&gbr_string);
-    parse_gerber(reader);
+    parse(reader).unwrap();
 }
 
 #[test]
@@ -231,7 +231,7 @@ M02*
 ";
     let reader = utils::gerber_to_reader(&gbr_string);
 
-    assert_eq!(gbr_string, utils::gerber_doc_to_str(parse_gerber(reader)))
+    assert_eq!(gbr_string, utils::gerber_doc_to_str(parse(reader).unwrap()))
 }
 
 #[test]
@@ -290,7 +290,7 @@ fn a_drill_file_to_rust() {
     M02*    
     ";
     let reader = utils::gerber_to_reader(&gbr_string);
-    parse_gerber(reader);
+    parse(reader).unwrap();
 }
 
 #[test]
@@ -343,5 +343,5 @@ M02*
 ";
     let reader = utils::gerber_to_reader(&gbr_string);
 
-    assert_eq!(gbr_string, utils::gerber_doc_to_str(parse_gerber(reader)))
+    assert_eq!(gbr_string, utils::gerber_doc_to_str(parse(reader).unwrap()))
 }
