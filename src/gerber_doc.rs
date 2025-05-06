@@ -4,16 +4,16 @@ use ::std::collections::HashMap;
 use std::fmt;
 use std::iter::repeat;
 
+/// Representation of a Gerber document
 #[derive(Default, Debug)]
-// Representation of a Gerber document
 pub struct GerberDoc {
-    // unit type, defined once per document
+    /// unit type, defined once per document
     pub units: Option<Unit>,
-    // format specification for coordinates, defined once per document
+    /// format specification for coordinates, defined once per document
     pub format_specification: Option<CoordinateFormat>,
     /// map of apertures which can be used in draw commands later on in the document.
     pub apertures: HashMap<i32, Aperture>,
-    // Anything else, draw commands, comments, attributes
+    /// Everything else - draw commands, comments, attributes, etc.
     pub commands: Vec<Result<Command, GerberParserErrorWithContext>>,
     /// Image Name, 8.1.3. Deprecated, but still used by fusion 360.
     pub image_name: Option<String>,
