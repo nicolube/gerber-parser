@@ -44,7 +44,7 @@ X0Y-720D03*
 X0Y720D03*
 M02*
 ";
-    let reader = utils::gerber_to_reader(&gbr_string);
+    let reader = utils::gerber_to_reader(gbr_string);
 
     let result = parse(reader);
     assert!(result.is_ok());

@@ -2,7 +2,6 @@ use crate::error::GerberParserErrorWithContext;
 use crate::gerber_types::{Aperture, Command, CoordinateFormat, Unit};
 use ::std::collections::HashMap;
 use std::fmt;
-use std::iter::repeat;
 
 /// Representation of a Gerber document
 #[derive(Default, Debug)]
@@ -75,8 +74,8 @@ impl fmt::Display for GerberDoc {
                 writeln!(f, "- no format spec!")?;
             }
             Some(format_spec) => {
-                let int_str: String = repeat("_").take(format_spec.integer as usize).collect();
-                let dec_str: String = repeat("_").take(format_spec.decimal as usize).collect();
+                let int_str: String = "_".repeat(format_spec.integer as usize);
+                let dec_str: String = "_".repeat(format_spec.decimal as usize);
                 writeln!(
                     f,
                     "- format spec: {}.{} ({}|{})",
@@ -86,7 +85,7 @@ impl fmt::Display for GerberDoc {
         }
 
         writeln!(f, "- apertures: ")?;
-        for (code, _) in &self.apertures {
+        for code in self.apertures.keys() {
             writeln!(f, "\t {}", code)?;
         }
         write!(f, "- commands: {}", &self.commands.len())

@@ -128,12 +128,10 @@ pub fn parse<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, (GerberDoc, Par
         None => gerber_doc
             .commands
             .push(Err(ContentError::NoEndOfFile.to_with_context(None, None))),
-        Some(command) => match command {
-            Ok(Command::FunctionCode(FunctionCode::MCode(MCode::EndOfFile))) => {}
-            _ => gerber_doc
-                .commands
-                .push(Err(ContentError::NoEndOfFile.to_with_context(None, None))),
-        },
+        Some(Ok(Command::FunctionCode(FunctionCode::MCode(MCode::EndOfFile)))) => {}
+        _ => gerber_doc
+            .commands
+            .push(Err(ContentError::NoEndOfFile.to_with_context(None, None))),
     }
 
     match parse_error {
@@ -201,14 +199,14 @@ fn parse_line<T: Read>(
         }
         '%' => {
             match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                'M' => match parse_units(line, &gerber_doc) {
+                'M' => match parse_units(line, gerber_doc) {
                     Ok(units) => {
                         gerber_doc.units = Some(units);
                         Ok(Command::ExtendedCode(ExtendedCode::Unit(units)))
                     }
                     Err(e) => Err(e),
                 },
-                'F' => match parse_format_spec(line, &gerber_doc) {
+                'F' => match parse_format_spec(line, gerber_doc) {
                     Ok(format_spec) => {
                         gerber_doc.format_specification = Some(format_spec);
                         Ok(ExtendedCode::CoordinateFormat(format_spec).into())
@@ -218,7 +216,7 @@ fn parse_line<T: Read>(
                 'A' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
                     'D' => {
                         // AD
-                        match parse_aperture_defs(line, &gerber_doc) {
+                        match parse_aperture_defs(line, gerber_doc) {
                             Ok((code, ap)) => {
                                 gerber_doc.apertures.insert(code, ap.clone());
                                 // Safety: While insert can 'fail' (misbehave) if the key
@@ -271,7 +269,7 @@ fn parse_line<T: Read>(
                 'I' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
                     'N' => {
                         // Image Name, 8.1.3. Deprecated, but still used by fusion 360.
-                        match parse_image_name(line, &gerber_doc) {
+                        match parse_image_name(line, gerber_doc) {
                             Ok(name) => {
                                 gerber_doc.image_name = Some(name.clone());
                                 // Because `gerber-types` does not support image name,
@@ -298,16 +296,16 @@ fn parse_line<T: Read>(
                 .next_back()
                 .ok_or(ContentError::UnknownCommand {})?
             {
-                '1' => parse_interpolation(line, &gerber_doc), // D01
-                '2' => parse_move_or_flash(line, &gerber_doc, false), // D02
-                '3' => parse_move_or_flash(line, &gerber_doc, true), // D03
+                '1' => parse_interpolation(line, gerber_doc), // D01
+                '2' => parse_move_or_flash(line, gerber_doc, false), // D02
+                '3' => parse_move_or_flash(line, gerber_doc, true), // D03
                 _ => Err(ContentError::UnknownCommand {}),
             }
         }
         'D' => {
             // select aperture D<num>* (where num >= 10) or command where num < 10
             linechars.next_back(); // remove the trailing '*'
-            parse_aperture_selection_or_command(line, linechars, &gerber_doc)
+            parse_aperture_selection_or_command(line, linechars, gerber_doc)
         }
         'M' => Ok(FunctionCode::MCode(MCode::EndOfFile).into()),
         _ => Err(ContentError::UnknownCommand {}),
@@ -398,7 +396,7 @@ fn parse_aperture_macro_definition<T: Read>(
         }
 
         fn trim_line(line: &str) -> &str {
-            line.trim_end_matches(&['*', '%'])
+            line.trim_end_matches(['*', '%'])
         }
 
         fn read_params<T: Read>(
@@ -432,12 +430,12 @@ fn parse_aperture_macro_definition<T: Read>(
         update_line_state(&mut line_state, &line);
 
         let trimmed_line = trim_line(&line);
-        if trimmed_line.starts_with("0 ") {
+        if let Some(stripped) = trimmed_line.strip_prefix("0 ") {
             // Handle the special-case comment primitive
 
             // Gerber spec: 4.5.1.2 "The comment primitive starts with the ‘0’ code followed by a space and then a
             // single-line text string"
-            content.push(MacroContent::Comment(trimmed_line[2..].trim().to_string()));
+            content.push(MacroContent::Comment(stripped.trim().to_string()));
             continue;
         }
 
@@ -784,7 +782,7 @@ fn parse_format_spec(line: &str, gerber_doc: &GerberDoc) -> Result<CoordinateFor
                 )?;
 
                 // the gerber spec states that the integer value can be at most 6
-                if integer < 1 || integer > 6 {
+                if !(1..=6).contains(&integer) {
                     return Err(ContentError::ParseFormatErrorInvalidDigit {
                         digit_found: integer,
                     });
@@ -861,11 +859,13 @@ fn parse_aperture_defs(
                     })
                     .collect::<Vec<_>>();
 
-                parse_results.into_iter().try_fold(vec![], |mut args, foo| {
-                    let arg = foo?;
-                    args.push(arg);
-                    Ok(args)
-                })
+                parse_results
+                    .into_iter()
+                    .try_fold(vec![], |mut args, result| {
+                        let arg = result?;
+                        args.push(arg);
+                        Ok(args)
+                    })
             })
             .transpose()?;
 
@@ -1478,12 +1478,11 @@ fn line_to_args(line: &str) -> Vec<String> {
 
 /// value should be a pre-trimmed string.
 fn parse_macro_decimal(value: &str) -> Result<MacroDecimal, ContentError> {
-    let captures =
-        RE_MACRO_DECIMAL
-            .captures(&value)
-            .ok_or(ContentError::InvalidMacroDefinition(
-                "Invalid parameter".to_string(),
-            ))?;
+    let captures = RE_MACRO_DECIMAL
+        .captures(value)
+        .ok_or(ContentError::InvalidMacroDefinition(
+            "Invalid parameter".to_string(),
+        ))?;
     if let Some(value_match) = captures.name("value") {
         let value = value_match
             .as_str()
@@ -1508,12 +1507,11 @@ fn parse_macro_decimal(value: &str) -> Result<MacroDecimal, ContentError> {
 
 /// value should be a pre-trimmed string.
 fn parse_macro_boolean(value: &str) -> Result<MacroBoolean, ContentError> {
-    let captures =
-        RE_MACRO_BOOLEAN
-            .captures(&value)
-            .ok_or(ContentError::InvalidMacroDefinition(
-                "Invalid parameter".to_string(),
-            ))?;
+    let captures = RE_MACRO_BOOLEAN
+        .captures(value)
+        .ok_or(ContentError::InvalidMacroDefinition(
+            "Invalid parameter".to_string(),
+        ))?;
     if let Some(value_match) = captures.name("value") {
         let value = value_match
             .as_str()
@@ -1540,7 +1538,7 @@ fn parse_macro_boolean(value: &str) -> Result<MacroBoolean, ContentError> {
 fn parse_macro_integer(value: &str) -> Result<MacroInteger, ContentError> {
     let captures =
         RE_MACRO_UNSIGNED_INTEGER
-            .captures(&value)
+            .captures(value)
             .ok_or(ContentError::InvalidMacroDefinition(
                 "Invalid parameter".to_string(),
             ))?;

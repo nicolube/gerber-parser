@@ -30,7 +30,7 @@ fn two_square_boxes_to_rust() {
     Y0D01*
     M02*
 ";
-    let reader = utils::gerber_to_reader(&gbr_string);
+    let reader = utils::gerber_to_reader(gbr_string);
     parse(reader).unwrap();
 }
 
@@ -55,7 +55,7 @@ X6000000Y5000000D01*
 X6000000Y0D01*
 M02*
 ";
-    let reader = utils::gerber_to_reader(&gbr_string);
+    let reader = utils::gerber_to_reader(gbr_string);
 
     assert_eq!(gbr_string, utils::gerber_doc_to_str(parse(reader).unwrap()))
 }
@@ -142,7 +142,7 @@ D19*
 X28750000Y28750000D03*
 M02*      
 ";
-    let reader = utils::gerber_to_reader(&gbr_string);
+    let reader = utils::gerber_to_reader(gbr_string);
     parse(reader).unwrap();
 }
 
@@ -229,7 +229,7 @@ D19*
 X28750000Y28750000D03*
 M02*      
 ";
-    let reader = utils::gerber_to_reader(&gbr_string);
+    let reader = utils::gerber_to_reader(gbr_string);
 
     assert_eq!(gbr_string, utils::gerber_doc_to_str(parse(reader).unwrap()))
 }
@@ -289,7 +289,7 @@ fn a_drill_file_to_rust() {
     X3670000D03*
     M02*    
     ";
-    let reader = utils::gerber_to_reader(&gbr_string);
+    let reader = utils::gerber_to_reader(gbr_string);
     parse(reader).unwrap();
 }
 
@@ -341,7 +341,7 @@ X1670000Y-6000000D03*
 X3670000Y-6000000D03*
 M02*
 ";
-    let reader = utils::gerber_to_reader(&gbr_string);
+    let reader = utils::gerber_to_reader(gbr_string);
 
     assert_eq!(gbr_string, utils::gerber_doc_to_str(parse(reader).unwrap()))
 }
