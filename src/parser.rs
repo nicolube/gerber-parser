@@ -1,7 +1,7 @@
 use std::io::{BufRead, BufReader, Lines, Read};
 
+use crate::document::GerberDoc;
 use crate::error::GerberParserError;
-use crate::gerber_doc::GerberDoc;
 use crate::gerber_types::{
     Aperture, ApertureAttribute, ApertureFunction, ApertureMacro, CenterLinePrimitive, Circle,
     CirclePrimitive, Command, CoordinateFormat, CoordinateNumber, CoordinateOffset, Coordinates,
