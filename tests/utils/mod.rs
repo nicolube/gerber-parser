@@ -1,8 +1,8 @@
+use gerber_parser::gerber_doc::GerberDoc;
+use gerber_types::GerberCode;
 use std::io::BufReader;
 use std::str;
 use stringreader::StringReader;
-use gerber_types::GerberCode;
-use gerber_parser::gerber_doc::GerberDoc;
 
 #[must_use]
 pub fn gerber_to_reader(gerber_string: &str) -> BufReader<StringReader> {

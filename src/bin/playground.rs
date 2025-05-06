@@ -1,14 +1,14 @@
 use gerber_parser::parser::parse_gerber;
 
+use gerber_types::GerberCode;
 use std::io::BufReader;
 use stringreader::StringReader;
-use gerber_types::GerberCode;
 
 use std::str;
 
-
 fn main() {
-    let reader = BufReader::new(StringReader::new("    
+    let reader = BufReader::new(StringReader::new(
+        "    
     %FSLAX23Y23*%
     %MOMM*%
 
@@ -57,11 +57,13 @@ fn main() {
 
 
     M02*
-    "));
+    ",
+    ));
 
     let mut file = Vec::<u8>::new();
-    parse_gerber(reader).to_commands().serialize(&mut file).unwrap();
-    println!("GBR >> {}",str::from_utf8(&file).unwrap())
+    parse_gerber(reader)
+        .to_commands()
+        .serialize(&mut file)
+        .unwrap();
+    println!("GBR >> {}", str::from_utf8(&file).unwrap())
 }
-
-

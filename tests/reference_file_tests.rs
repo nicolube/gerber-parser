@@ -3,7 +3,7 @@ mod utils;
 
 /// All files in these tests are taken from the Ucamco 20220409 file format examples
 /// downloaded from https://www.ucamco.com/en/gerber/downloads on 20220628
-/// 
+///
 /// Some files have some slight edits made to ensure the gbr -> rust -> gbr works
 /// But these are ones that do not change the meaning of the file.
 
@@ -234,7 +234,6 @@ M02*
     assert_eq!(gbr_string, utils::gerber_doc_to_str(parse_gerber(reader)))
 }
 
-
 #[test]
 // unmodified reference file, purely to check for panics
 fn a_drill_file_to_rust() {
@@ -294,7 +293,6 @@ fn a_drill_file_to_rust() {
     parse_gerber(reader);
 }
 
-
 #[test]
 // - some of the TF and TA statements were removed to avoid panics
 // - the implicit commands (X or Y ommited) were made explicit
@@ -347,4 +345,3 @@ M02*
 
     assert_eq!(gbr_string, utils::gerber_doc_to_str(parse_gerber(reader)))
 }
-
