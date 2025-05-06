@@ -78,7 +78,7 @@ pub fn parse_gerber<T: Read>(reader: BufReader<T>) -> GerberDoc {
 /// your Gerber file is valid according to the spec. Some of the parsing steps are greedy - they may
 /// match something unexpected (rather than panicking) if there is a typo/fault in your file.
 fn parse_gerber_inner<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, GerberParserError> {
-    let mut gerber_doc = GerberDoc::new();
+    let mut gerber_doc = GerberDoc::default();
 
     let mut parser_context = ParserContext::new(reader.lines());
 

@@ -4,8 +4,8 @@ use ::std::collections::HashMap;
 use std::fmt;
 use std::iter::repeat;
 
-#[derive(Debug)]
-// Representation of Gerber document
+#[derive(Default, Debug)]
+// Representation of a Gerber document
 pub struct GerberDoc {
     // unit type, defined once per document
     pub units: Option<Unit>,
@@ -20,15 +20,9 @@ pub struct GerberDoc {
 }
 
 impl GerberDoc {
-    // instantiate a empty gerber document ready for parsing
+    #[deprecated(since = "0.2.0", note = "Use default() instead")]
     pub fn new() -> GerberDoc {
-        GerberDoc {
-            units: None,
-            format_specification: None,
-            apertures: HashMap::new(),
-            commands: Vec::new(),
-            image_name: None,
-        }
+        Self::default()
     }
 
     /// Convert Self into a representation of a gerber document *purely* in terms of elements provided
