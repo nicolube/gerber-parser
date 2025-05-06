@@ -1,4 +1,4 @@
-use gerber_parser::parser::parse_gerber;
+use gerber_parser::parse_gerber;
 mod utils;
 
 /// These tests are similar to those in reference_file_tests.rs, but the files below are

@@ -1,4 +1,4 @@
-use gerber_parser::parser::parse_gerber;
+use gerber_parser::parse_gerber;
 mod utils;
 
 /// All files in these tests are taken from the Ucamco 20220409 file format examples

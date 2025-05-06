@@ -1,6 +1,6 @@
 use ::std::collections::HashMap;
-use gerber_parser::error::GerberParserErrorWithContext;
-use gerber_parser::parser::{
+use gerber_parser::GerberParserErrorWithContext;
+use gerber_parser::{
     coordinates_from_gerber, coordinates_offset_from_gerber, parse_gerber,
     partial_coordinates_from_gerber,
 };

@@ -1,4 +1,4 @@
-use gerber_parser::parser::parse_gerber;
+use gerber_parser::parse_gerber;
 
 use gerber_types::GerberCode;
 use std::io::BufReader;

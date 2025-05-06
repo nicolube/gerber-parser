@@ -1396,7 +1396,7 @@ fn parse_delete_attribute(line: Chars) -> Result<Command, GerberParserError> {
 /// `attribute_chars` argument must be the **trimmed line** from the gerber file
 /// with the **first three characters removed**. E.g. ".Part,single*%" not "%TF.Part,single*%"
 /// ```
-/// use gerber_parser::parser::get_attr_args;
+/// use gerber_parser::get_attr_args;
 /// let attribute_chars = ".DrillTolerance, 0.02, 0.01 *%".chars();
 ///
 /// let arguments = get_attr_args(attribute_chars).unwrap();

@@ -12,9 +12,14 @@
 //! As the crate is still in the early version, expect significant changes over time, as both this
 //! crate and `gerber-types` will need to undergo changes.
 
-pub mod error;
-pub mod gerber_doc;
-pub mod parser;
+// These modules are not public, instead we re-export the public types from them below
+mod error;
+mod gerber_doc;
+mod parser;
 
 // Since this crate is specifically designed to parse into types exposed by `gerber_types`, we re-export it here.
 pub use gerber_types;
+
+pub use error::*;
+pub use gerber_doc::*;
+pub use parser::*;
