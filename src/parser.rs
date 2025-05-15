@@ -11,6 +11,7 @@ use crate::gerber_types::{
     Rectangular, SmdPadType, StepAndRepeat, Unit, VectorLinePrimitive,
 };
 use crate::ParseError;
+use gerber_types::VariableDefinition;
 use lazy_regex::*;
 use regex::Regex;
 use std::str::Chars;
@@ -38,6 +39,8 @@ static RE_MACRO_BOOLEAN: Lazy<Regex> =
     lazy_regex!(r"(?P<value>0|1)|(?P<variable>^\$[0-9]+$)|(?P<expression>.*)");
 static RE_MACRO_DECIMAL: Lazy<Regex> =
     lazy_regex!(r"(?P<value>[+-]?[0-9]+(?:\.[0-9]*)?)|(?P<variable>^\$[0-9]+$)|(?P<expression>.*)");
+static RE_MACRO_VARIABLE: Lazy<Regex> =
+    lazy_regex!(r"\$(?P<number>\d+)\s*=\s*(?P<expression>[^*]+)\s*");
 
 struct ParserContext<T: Read> {
     line_number: usize,
@@ -436,6 +439,40 @@ fn parse_aperture_macro_definition<T: Read>(
             // Gerber spec: 4.5.1.2 "The comment primitive starts with the ‘0’ code followed by a space and then a
             // single-line text string"
             content.push(MacroContent::Comment(stripped.trim().to_string()));
+            continue;
+        }
+
+        if trimmed_line.starts_with("$") {
+            // Handle the special-case variable definition primitive
+
+            if let Some(captures) = RE_MACRO_VARIABLE.captures(trimmed_line) {
+                let number = captures
+                    .name("number")
+                    .map(|number| number.as_str().parse::<u32>())
+                    .ok_or(ContentError::InvalidMacroDefinition(
+                        "Missing variable number".to_string(),
+                    ))?
+                    .map_err(|error| {
+                        ContentError::InvalidMacroDefinition(
+                            format!("Invalid variable number, cause: {}", error).to_string(),
+                        )
+                    })?;
+
+                let expression = captures
+                    .name("expression")
+                    .map(|expression| expression.as_str().to_string())
+                    .ok_or(ContentError::InvalidMacroDefinition(
+                        "Missing expression for variable definition".to_string(),
+                    ))?;
+
+                content.push(MacroContent::VariableDefinition(VariableDefinition {
+                    number,
+                    expression,
+                }));
+            }
+
+            // Gerber spec: 4.5.1.2 "The comment primitive starts with the ‘0’ code followed by a space and then a
+            // single-line text string"
             continue;
         }
 

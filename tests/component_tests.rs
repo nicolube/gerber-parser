@@ -8,7 +8,7 @@ use gerber_types::{
     CirclePrimitive, Command, CoordinateFormat, DCode, ExtendedCode, FileAttribute, FileFunction,
     FilePolarity, FunctionCode, GCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger,
     Operation, OutlinePrimitive, Part, Polygon, PolygonPrimitive, Rectangular, StepAndRepeat, Unit,
-    VectorLinePrimitive,
+    VariableDefinition, VectorLinePrimitive,
 };
 
 mod utils;
@@ -1243,6 +1243,107 @@ M02*
                         ])
                     )
                 )
+            ))),
+        ]
+    );
+}
+
+// See gerber spec 2021-02, section 4.5
+#[test]
+fn test_macro_with_variable_definition() {
+    // given
+    let reader = utils::gerber_to_reader(
+        r#"
+    %FSLAX35Y35*%
+    %MOMM*%
+    %AMPLUS*
+    0 $1 Line Width*
+    0 $2 Width/Height*
+    0 $3 $4 Center X/Y*
+    $1=1.0*
+    $2=5.0*
+    $3=0.0*
+    $4=0.0*
+    20,1,$1,$3-$2,$4,$3+$2,$4,0*
+    20,1,$1,$3,$4-$2,$3,$4+$2,0*%
+    %ADD10PLUS*%
+    "#,
+    );
+
+    // Note, it's important that the macro definition isn't the only command in the file because it's important that
+    // the macro parser finds the end of the macro definition correctly and that it doesn't consume additional lines.
+
+    let expected_macro: ApertureMacro = ApertureMacro {
+        name: "PLUS".to_string(),
+        content: vec![
+            MacroContent::Comment("$1 Line Width".to_string()),
+            MacroContent::Comment("$2 Width/Height".to_string()),
+            MacroContent::Comment("$3 $4 Center X/Y".to_string()),
+            MacroContent::VariableDefinition(VariableDefinition {
+                number: 1,
+                expression: "1.0".to_string(),
+            }),
+            MacroContent::VariableDefinition(VariableDefinition {
+                number: 2,
+                expression: "5.0".to_string(),
+            }),
+            MacroContent::VariableDefinition(VariableDefinition {
+                number: 3,
+                expression: "0.0".to_string(),
+            }),
+            MacroContent::VariableDefinition(VariableDefinition {
+                number: 4,
+                expression: "0.0".to_string(),
+            }),
+            MacroContent::VectorLine(VectorLinePrimitive {
+                exposure: MacroBoolean::Value(true), // 1 indicates exposure on
+                width: MacroDecimal::Variable(1),
+                start: (
+                    MacroDecimal::Expression("$3-$2".to_string()),
+                    MacroDecimal::Variable(4),
+                ),
+                end: (
+                    MacroDecimal::Expression("$3+$2".to_string()),
+                    MacroDecimal::Variable(4),
+                ),
+                angle: MacroDecimal::Value(0.0),
+            }),
+            MacroContent::VectorLine(VectorLinePrimitive {
+                exposure: MacroBoolean::Value(true), // 1 indicates exposure on
+                width: MacroDecimal::Variable(1),
+                start: (
+                    MacroDecimal::Variable(3),
+                    MacroDecimal::Expression("$4-$2".to_string()),
+                ),
+                end: (
+                    MacroDecimal::Variable(3),
+                    MacroDecimal::Expression("$4+$2".to_string()),
+                ),
+                angle: MacroDecimal::Value(0.0),
+            }),
+        ],
+    };
+
+    // when
+    let commands = parse(reader).unwrap().commands;
+    dump_commands(&commands);
+
+    // then
+    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))))
+        ).collect()};
+
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
+
+    assert_eq_commands!(
+        filtered_commands,
+        vec![
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(
+                expected_macro
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(
+                ApertureDefinition::new(10, Aperture::Macro("PLUS".to_string(), None))
             ))),
         ]
     );
