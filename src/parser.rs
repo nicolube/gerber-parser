@@ -1040,10 +1040,7 @@ fn parse_aperture_selection_or_command(
 ) -> Result<Command, ContentError> {
     let aperture_str = linechars.as_str();
     if let Ok(aperture_code) = parse_aperture_code(aperture_str) {
-        match gerber_doc.apertures.contains_key(&aperture_code) {
-            true => Ok(FunctionCode::DCode(DCode::SelectAperture(aperture_code)).into()),
-            false => Err(ContentError::ApertureNotDefined { aperture_code }),
-        }
+        Ok(FunctionCode::DCode(DCode::SelectAperture(aperture_code)).into())
     } else {
         parse_command(line, gerber_doc)
     }

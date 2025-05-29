@@ -55,8 +55,6 @@ pub enum ContentError {
         "tried to parse the definition of aperture, but it uses an unknown type: '{type_str}'."
     )]
     UnknownApertureType { type_str: String },
-    #[error("tried to parse the selection of aperture '{aperture_code}' but it is not defined.")]
-    ApertureNotDefined { aperture_code: i32 },
     #[error(
         "tried to parse coordinate number out of '{coord_num_str}' but failed. \
     This means a coordinate was captured, but could not be parsed as an i64."

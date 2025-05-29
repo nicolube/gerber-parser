@@ -156,9 +156,21 @@ fn aperture_selection() {
     D999*
     D22*
 
-    M02*        
+    G04 Select an unknown aperture*
+    D100*
+
+    G04 Invalid aperture definition*
+    %ADD101Z, 0*%
+    G04 Select an incorrectly defined aperture*
+    D101*
+
+    M02*
     ",
     );
+
+    // Note, it's important that aperture selections for unknown or invalid apertures appear in the commands so that
+    // renderers can handle them appropriately, e.g. by displaying a error or rendering a placeholder where the aperture
+    // should be.
 
     let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
         cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::DCode(DCode::SelectAperture(_)))))).collect()};
@@ -174,7 +186,13 @@ fn aperture_selection() {
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::SelectAperture(22)
-            )))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::SelectAperture(100)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::SelectAperture(101)
+            ))),
         ]
     )
 }
