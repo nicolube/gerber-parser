@@ -848,15 +848,15 @@ fn test_outline_macro_and_aperture_definition() {
     %MOMM*%
     %TF.FileFunction,Copper,L1,Top*%
     %TF.Part,Single*%
-    %AMOUTLINE0*
-    4,1,5,
-    -0.40659,0.19445,
-    -0.26517,0.33588,
-    -0.12374,0.33588,
-    0.40659,-0.19445,
-    0.19445,-0.40659,
-    -0.40659,0.19445,
-    0*%
+%AMOUTLINE0*
+4,1,5,
+-0.40659,0.19445,
+-0.26517,0.33588,
+-0.12374,0.33588,
+0.40659,-0.19445,
+0.19445,-0.40659,
+-0.40659,0.19445,
+0*%
     %ADD17OUTLINE0*%
     "#,
     );
@@ -1344,6 +1344,102 @@ fn test_macro_with_variable_definition() {
             ))),
             Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(
                 ApertureDefinition::new(10, Aperture::Macro("PLUS".to_string(), None))
+            ))),
+        ]
+    );
+}
+
+/// This is a real-world example.
+#[test]
+fn test_jlccam_macro_1_with_empty_line() {
+    // given
+    let reader = utils::gerber_to_reader(
+        r#"
+    G04 -- output software:jlccam v1.5.1 *
+    G04 -- dbname:*
+    G04 -- stepname:set*
+    G04 -- layer:ts*
+    *
+    G04 -- format*
+    %FSLAX26Y26*%
+    %MOIN*%
+    *
+    G04 -- apertures*
+    G04 A5ts - set.0.from.i274x.OUTLINE37.d133+inc-0.6x0x00*
+    %AMA5ts*
+    4,1,5,
+    0.016703,-0.006161,
+    -0.004670,0.015209,
+    -0.010643,0.015208,
+    -0.016703,0.009147,
+    0.007655,-0.015209,
+    0.016703,-0.006161,
+    0.000*
+    %
+    %ADD26A5ts*%
+    "#,
+    );
+
+    // In the above example, note the '*' of the outline primitive appears after the rotation value and that the
+    // '%' appears on the next line.
+
+    // Note, it's important that the macro definition isn't the only command in the file because it's important that
+    // the macro parser finds the end of the macro definition correctly and that it doesn't consume additional lines.
+
+    let expected_macro: ApertureMacro = ApertureMacro {
+        name: "A5ts".to_string(),
+        content: vec![MacroContent::Outline(OutlinePrimitive {
+            exposure: MacroBoolean::Value(true),
+            points: vec![
+                (
+                    MacroDecimal::Value(0.016703),
+                    MacroDecimal::Value(-0.006161),
+                ),
+                (
+                    MacroDecimal::Value(-0.004670),
+                    MacroDecimal::Value(0.015209),
+                ),
+                (
+                    MacroDecimal::Value(-0.010643),
+                    MacroDecimal::Value(0.015208),
+                ),
+                (
+                    MacroDecimal::Value(-0.016703),
+                    MacroDecimal::Value(0.009147),
+                ),
+                (
+                    MacroDecimal::Value(0.007655),
+                    MacroDecimal::Value(-0.015209),
+                ),
+                (
+                    MacroDecimal::Value(0.016703),
+                    MacroDecimal::Value(-0.006161),
+                ),
+            ],
+            angle: MacroDecimal::Value(0.0),
+        })],
+    };
+
+    // when
+    let commands = parse(reader).unwrap().commands;
+    dump_commands(&commands);
+
+    // then
+    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))))
+        ).collect()};
+
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
+
+    assert_eq_commands!(
+        filtered_commands,
+        vec![
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(
+                expected_macro
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(
+                ApertureDefinition::new(26, Aperture::Macro("A5ts".to_string(), None))
             ))),
         ]
     );

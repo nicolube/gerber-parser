@@ -383,13 +383,14 @@ fn parse_aperture_macro_definition<T: Read>(
             continue;
         }
 
+        #[derive(Debug)]
         struct LineState {
             is_last_line: bool,
             has_continuation_line: bool,
         }
 
         fn update_line_state(line_state: &mut LineState, line: &str) {
-            if line.ends_with("*%") {
+            if line.ends_with("*%") || line.ends_with("%") {
                 line_state.is_last_line = true;
                 line_state.has_continuation_line = false;
             } else {
@@ -411,6 +412,7 @@ fn parse_aperture_macro_definition<T: Read>(
             while line_state.has_continuation_line {
                 if let Some(continuation_line) = parser_context.next() {
                     let continuation_line = continuation_line?;
+
                     update_line_state(line_state, &continuation_line);
 
                     let continuation_line = trim_line(&continuation_line);
@@ -478,275 +480,274 @@ fn parse_aperture_macro_definition<T: Read>(
 
         let mut params: Vec<String> = line_to_params(trimmed_line);
 
-        if params.is_empty() {
-            continue;
-        }
+        if !params.is_empty() {
+            // Parse outline primitive (type 4)
+            // TODO would be nice to have constants for the values in `gerber-types`. e.g. const APERTURE_MACRO_TYPE_OUTLINE: u8 = 4;
+            match params[0].parse::<u8>() {
+                Ok(1) => {
+                    // Handle circle primitive
+                    read_params(&mut params, parser_context, &mut line_state)?;
+                    let param_count_excluding_code = params.len() - 1;
 
-        // Parse outline primitive (type 4)
-        // TODO would be nice to have constants for the values in `gerber-types`. e.g. const APERTURE_MACRO_TYPE_OUTLINE: u8 = 4;
-        match params[0].parse::<u8>() {
-            Ok(1) => {
-                // Handle circle primitive
-                read_params(&mut params, parser_context, &mut line_state)?;
-                let param_count_excluding_code = params.len() - 1;
-
-                if !(4..=5).contains(&param_count_excluding_code) {
-                    // exposure + diameter + center x + center y [ + rotation]
-                    return Err(ContentError::InvalidMacroDefinition(
-                        "expected 4-5 parameters for circle".to_string(),
-                    ));
-                }
-
-                // reverse the params, so we can pop them one at a time.
-                params.reverse();
-                let _primitive_code = params.pop();
-
-                let exposure_str = params.pop().unwrap().trim().to_string();
-                let exposure = parse_macro_boolean(&exposure_str)?;
-
-                let diameter_str = params.pop().unwrap().trim().to_string();
-                let diameter = parse_macro_decimal(&diameter_str)?;
-
-                let center_x_str = params.pop().unwrap().trim().to_string();
-                let center_x = parse_macro_decimal(&center_x_str)?;
-
-                let center_y_str = params.pop().unwrap().trim().to_string();
-                let center_y = parse_macro_decimal(&center_y_str)?;
-
-                // Parse rotation angle from the last line
-                let angle = params
-                    .pop()
-                    .map(|angle_str| parse_macro_decimal(&angle_str))
-                    .transpose()?;
-
-                let circle = CirclePrimitive {
-                    exposure,
-
-                    diameter,
-                    center: (center_x, center_y),
-                    angle,
-                };
-                content.push(MacroContent::Circle(circle));
-            }
-            Ok(4) => {
-                // Handle outline primitive
-                read_params(&mut params, parser_context, &mut line_state)?;
-                let param_count_excluding_code = params.len() - 1;
-
-                if param_count_excluding_code < 6 {
-                    // exposure + #vertices + start x + start y [+ (x,y)] + end x + end y [ + rotation]
-                    return Err(ContentError::InvalidMacroDefinition(
-                        "expected minimum of 6 parameters for outline".to_string(),
-                    ));
-                }
-
-                // reverse the params, so we can pop them one at a time.
-                params.reverse();
-                let _primitive_code = params.pop();
-
-                let exposure_str = params.pop().unwrap().trim().to_string();
-                let exposure = parse_macro_boolean(&exposure_str)?;
-
-                let num_vertices = params.pop().unwrap().trim().parse::<u32>().map_err(|_| {
-                    ContentError::ApertureDefinitionParseFailed {
-                        aperture_definition_str: line.clone(),
-                    }
-                })?;
-
-                // Collect points from remaining parameters
-                let mut points = Vec::new();
-
-                // `num_points` is actually one fewer than the number of points in the macro definition, so we use `<=` here
-                while points.len() <= num_vertices as usize {
-                    if params.len() >= 2 {
-                        let x_str = params.pop().unwrap().trim().to_string();
-                        let x = parse_macro_decimal(&x_str)?;
-                        let y_str = params.pop().unwrap().trim().to_string();
-                        let y = parse_macro_decimal(&y_str)?;
-
-                        points.push((x, y));
-                    } else {
+                    if !(4..=5).contains(&param_count_excluding_code) {
+                        // exposure + diameter + center x + center y [ + rotation]
                         return Err(ContentError::InvalidMacroDefinition(
-                            "Missing outline point line.".to_string(),
+                            "expected 4-5 parameters for circle".to_string(),
                         ));
                     }
-                }
 
-                // Parse rotation angle from the last line
-                let angle = params
-                    .pop()
-                    .map(|angle_str| {
-                        angle_str.trim().parse::<f64>().map_err(|_| {
-                            ContentError::InvalidMacroDefinition(
-                                "Invalid angle parameter".to_string(),
-                            )
+                    // reverse the params, so we can pop them one at a time.
+                    params.reverse();
+                    let _primitive_code = params.pop();
+
+                    let exposure_str = params.pop().unwrap().trim().to_string();
+                    let exposure = parse_macro_boolean(&exposure_str)?;
+
+                    let diameter_str = params.pop().unwrap().trim().to_string();
+                    let diameter = parse_macro_decimal(&diameter_str)?;
+
+                    let center_x_str = params.pop().unwrap().trim().to_string();
+                    let center_x = parse_macro_decimal(&center_x_str)?;
+
+                    let center_y_str = params.pop().unwrap().trim().to_string();
+                    let center_y = parse_macro_decimal(&center_y_str)?;
+
+                    // Parse rotation angle from the last line
+                    let angle = params
+                        .pop()
+                        .map(|angle_str| parse_macro_decimal(&angle_str))
+                        .transpose()?;
+
+                    let circle = CirclePrimitive {
+                        exposure,
+
+                        diameter,
+                        center: (center_x, center_y),
+                        angle,
+                    };
+                    content.push(MacroContent::Circle(circle));
+                }
+                Ok(4) => {
+                    // Handle outline primitive
+                    read_params(&mut params, parser_context, &mut line_state)?;
+                    let param_count_excluding_code = params.len() - 1;
+
+                    if param_count_excluding_code < 6 {
+                        // exposure + #vertices + start x + start y [+ (x,y)] + end x + end y [ + rotation]
+                        return Err(ContentError::InvalidMacroDefinition(
+                            "expected minimum of 6 parameters for outline".to_string(),
+                        ));
+                    }
+
+                    // reverse the params, so we can pop them one at a time.
+                    params.reverse();
+                    let _primitive_code = params.pop();
+
+                    let exposure_str = params.pop().unwrap().trim().to_string();
+                    let exposure = parse_macro_boolean(&exposure_str)?;
+
+                    let num_vertices =
+                        params.pop().unwrap().trim().parse::<u32>().map_err(|_| {
+                            ContentError::ApertureDefinitionParseFailed {
+                                aperture_definition_str: line.clone(),
+                            }
+                        })?;
+
+                    // Collect points from remaining parameters
+                    let mut points = Vec::new();
+
+                    // `num_points` is actually one fewer than the number of points in the macro definition, so we use `<=` here
+                    while points.len() <= num_vertices as usize {
+                        if params.len() >= 2 {
+                            let x_str = params.pop().unwrap().trim().to_string();
+                            let x = parse_macro_decimal(&x_str)?;
+                            let y_str = params.pop().unwrap().trim().to_string();
+                            let y = parse_macro_decimal(&y_str)?;
+
+                            points.push((x, y));
+                        } else {
+                            return Err(ContentError::InvalidMacroDefinition(
+                                "Missing outline point line.".to_string(),
+                            ));
+                        }
+                    }
+
+                    // Parse rotation angle from the last line
+                    let angle = params
+                        .pop()
+                        .map(|angle_str| {
+                            angle_str.trim().parse::<f64>().map_err(|_| {
+                                ContentError::InvalidMacroDefinition(
+                                    "Invalid angle parameter".to_string(),
+                                )
+                            })
                         })
-                    })
-                    .transpose()?
-                    .unwrap_or(0.0);
+                        .transpose()?
+                        .unwrap_or(0.0);
 
-                let outline = OutlinePrimitive {
-                    exposure,
-                    points,
-                    angle: MacroDecimal::Value(angle),
-                };
+                    let outline = OutlinePrimitive {
+                        exposure,
+                        points,
+                        angle: MacroDecimal::Value(angle),
+                    };
 
-                content.push(MacroContent::Outline(outline));
-            }
-            Ok(5) => {
-                // Handle polygon primitive
-                read_params(&mut params, parser_context, &mut line_state)?;
-                let param_count_excluding_code = params.len() - 1;
-
-                if !(5..=6).contains(&param_count_excluding_code) {
-                    // exposure + #vertices + center x + center y + diameter [ + rotation]
-                    return Err(ContentError::InvalidMacroDefinition(
-                        "Expected 5-6 parameters for polygon".to_string(),
-                    ));
+                    content.push(MacroContent::Outline(outline));
                 }
+                Ok(5) => {
+                    // Handle polygon primitive
+                    read_params(&mut params, parser_context, &mut line_state)?;
+                    let param_count_excluding_code = params.len() - 1;
 
-                // reverse the params, so we can pop them one at a time.
-                params.reverse();
-                let _primitive_code = params.pop();
+                    if !(5..=6).contains(&param_count_excluding_code) {
+                        // exposure + #vertices + center x + center y + diameter [ + rotation]
+                        return Err(ContentError::InvalidMacroDefinition(
+                            "Expected 5-6 parameters for polygon".to_string(),
+                        ));
+                    }
 
-                let exposure_str = params.pop().unwrap().trim().to_string();
-                let exposure = parse_macro_boolean(&exposure_str)?;
+                    // reverse the params, so we can pop them one at a time.
+                    params.reverse();
+                    let _primitive_code = params.pop();
 
-                let vertices_str = params.pop().unwrap().trim().to_string();
-                let vertices = parse_macro_integer(&vertices_str)?;
+                    let exposure_str = params.pop().unwrap().trim().to_string();
+                    let exposure = parse_macro_boolean(&exposure_str)?;
 
-                let center_x_str = params.pop().unwrap().trim().to_string();
-                let center_x = parse_macro_decimal(&center_x_str)?;
+                    let vertices_str = params.pop().unwrap().trim().to_string();
+                    let vertices = parse_macro_integer(&vertices_str)?;
 
-                let center_y_str = params.pop().unwrap().trim().to_string();
-                let center_y = parse_macro_decimal(&center_y_str)?;
+                    let center_x_str = params.pop().unwrap().trim().to_string();
+                    let center_x = parse_macro_decimal(&center_x_str)?;
 
-                let diameter_str = params.pop().unwrap().trim().to_string();
-                let diameter = parse_macro_decimal(&diameter_str)?;
+                    let center_y_str = params.pop().unwrap().trim().to_string();
+                    let center_y = parse_macro_decimal(&center_y_str)?;
 
-                // Parse rotation angle from the last parameter
-                let angle = params
-                    .pop()
-                    .map(|angle_str| parse_macro_decimal(&angle_str))
-                    .transpose()?
-                    .unwrap_or(MacroDecimal::Value(0.0));
+                    let diameter_str = params.pop().unwrap().trim().to_string();
+                    let diameter = parse_macro_decimal(&diameter_str)?;
 
-                let polygon_primitive = PolygonPrimitive {
-                    exposure,
-                    vertices,
-                    center: (center_x, center_y),
-                    diameter,
-                    angle,
-                };
+                    // Parse rotation angle from the last parameter
+                    let angle = params
+                        .pop()
+                        .map(|angle_str| parse_macro_decimal(&angle_str))
+                        .transpose()?
+                        .unwrap_or(MacroDecimal::Value(0.0));
 
-                content.push(MacroContent::Polygon(polygon_primitive));
-            }
-            Ok(20) => {
-                // Vector-line primitive
-                read_params(&mut params, parser_context, &mut line_state)?;
-                let param_count_excluding_code = params.len() - 1;
+                    let polygon_primitive = PolygonPrimitive {
+                        exposure,
+                        vertices,
+                        center: (center_x, center_y),
+                        diameter,
+                        angle,
+                    };
 
-                if !(6..=7).contains(&param_count_excluding_code) {
-                    // exposure + width + start x + start y + end x + end y [ + rotation]
-                    return Err(ContentError::InvalidMacroDefinition(
-                        "Expected 6-7 parameters for vector-line".to_string(),
-                    ));
+                    content.push(MacroContent::Polygon(polygon_primitive));
                 }
+                Ok(20) => {
+                    // Vector-line primitive
+                    read_params(&mut params, parser_context, &mut line_state)?;
+                    let param_count_excluding_code = params.len() - 1;
 
-                // reverse the params, so we can pop them one at a time.
-                params.reverse();
-                let _primitive_code = params.pop();
+                    if !(6..=7).contains(&param_count_excluding_code) {
+                        // exposure + width + start x + start y + end x + end y [ + rotation]
+                        return Err(ContentError::InvalidMacroDefinition(
+                            "Expected 6-7 parameters for vector-line".to_string(),
+                        ));
+                    }
 
-                let exposure_str = params.pop().unwrap().trim().to_string();
-                let exposure = parse_macro_boolean(&exposure_str)?;
+                    // reverse the params, so we can pop them one at a time.
+                    params.reverse();
+                    let _primitive_code = params.pop();
 
-                let width_str = params.pop().unwrap().trim().to_string();
-                let width = parse_macro_decimal(&width_str)?;
+                    let exposure_str = params.pop().unwrap().trim().to_string();
+                    let exposure = parse_macro_boolean(&exposure_str)?;
 
-                let start_x_str = params.pop().unwrap().trim().to_string();
-                let start_x = parse_macro_decimal(&start_x_str)?;
+                    let width_str = params.pop().unwrap().trim().to_string();
+                    let width = parse_macro_decimal(&width_str)?;
 
-                let start_y_str = params.pop().unwrap().trim().to_string();
-                let start_y = parse_macro_decimal(&start_y_str)?;
+                    let start_x_str = params.pop().unwrap().trim().to_string();
+                    let start_x = parse_macro_decimal(&start_x_str)?;
 
-                let end_x_str = params.pop().unwrap().trim().to_string();
-                let end_x = parse_macro_decimal(&end_x_str)?;
+                    let start_y_str = params.pop().unwrap().trim().to_string();
+                    let start_y = parse_macro_decimal(&start_y_str)?;
 
-                let end_y_str = params.pop().unwrap().trim().to_string();
-                let end_y = parse_macro_decimal(&end_y_str)?;
+                    let end_x_str = params.pop().unwrap().trim().to_string();
+                    let end_x = parse_macro_decimal(&end_x_str)?;
 
-                // Parse rotation angle from the last parameter
-                let angle = params
-                    .pop()
-                    .map(|angle_str| parse_macro_decimal(&angle_str))
-                    .transpose()?
-                    .unwrap_or(MacroDecimal::Value(0.0));
+                    let end_y_str = params.pop().unwrap().trim().to_string();
+                    let end_y = parse_macro_decimal(&end_y_str)?;
 
-                let vector_line = VectorLinePrimitive {
-                    exposure,
-                    width,
-                    start: (start_x, start_y),
-                    end: (end_x, end_y),
-                    angle,
-                };
-                content.push(MacroContent::VectorLine(vector_line));
-            }
-            Ok(21) => {
-                // Center-line primitive
-                read_params(&mut params, parser_context, &mut line_state)?;
-                let param_count_excluding_code = params.len() - 1;
+                    // Parse rotation angle from the last parameter
+                    let angle = params
+                        .pop()
+                        .map(|angle_str| parse_macro_decimal(&angle_str))
+                        .transpose()?
+                        .unwrap_or(MacroDecimal::Value(0.0));
 
-                if !(5..=6).contains(&param_count_excluding_code) {
-                    // exposure + width + height + center x + center y [ + rotation]
-                    return Err(ContentError::InvalidMacroDefinition(
-                        "Expected 5-6 parameters for center-line".to_string(),
-                    ));
+                    let vector_line = VectorLinePrimitive {
+                        exposure,
+                        width,
+                        start: (start_x, start_y),
+                        end: (end_x, end_y),
+                        angle,
+                    };
+                    content.push(MacroContent::VectorLine(vector_line));
                 }
+                Ok(21) => {
+                    // Center-line primitive
+                    read_params(&mut params, parser_context, &mut line_state)?;
+                    let param_count_excluding_code = params.len() - 1;
 
-                // reverse the params, so we can pop them one at a time.
-                params.reverse();
-                let _primitive_code = params.pop();
+                    if !(5..=6).contains(&param_count_excluding_code) {
+                        // exposure + width + height + center x + center y [ + rotation]
+                        return Err(ContentError::InvalidMacroDefinition(
+                            "Expected 5-6 parameters for center-line".to_string(),
+                        ));
+                    }
 
-                let exposure_str = params.pop().unwrap().trim().to_string();
-                let exposure = parse_macro_boolean(&exposure_str)?;
+                    // reverse the params, so we can pop them one at a time.
+                    params.reverse();
+                    let _primitive_code = params.pop();
 
-                let width_str = params.pop().unwrap().trim().to_string();
-                let width = parse_macro_decimal(&width_str)?;
+                    let exposure_str = params.pop().unwrap().trim().to_string();
+                    let exposure = parse_macro_boolean(&exposure_str)?;
 
-                let height_str = params.pop().unwrap().trim().to_string();
-                let height = parse_macro_decimal(&height_str)?;
+                    let width_str = params.pop().unwrap().trim().to_string();
+                    let width = parse_macro_decimal(&width_str)?;
 
-                let center_x_str = params.pop().unwrap().trim().to_string();
-                let center_x = parse_macro_decimal(&center_x_str)?;
+                    let height_str = params.pop().unwrap().trim().to_string();
+                    let height = parse_macro_decimal(&height_str)?;
 
-                let center_y_str = params.pop().unwrap().trim().to_string();
-                let center_y = parse_macro_decimal(&center_y_str)?;
+                    let center_x_str = params.pop().unwrap().trim().to_string();
+                    let center_x = parse_macro_decimal(&center_x_str)?;
 
-                // Parse rotation angle from the last parameter
-                let angle = params
-                    .pop()
-                    .map(|angle_str| parse_macro_decimal(&angle_str))
-                    .transpose()?
-                    .unwrap_or(MacroDecimal::Value(0.0));
+                    let center_y_str = params.pop().unwrap().trim().to_string();
+                    let center_y = parse_macro_decimal(&center_y_str)?;
 
-                let center_line = CenterLinePrimitive {
-                    exposure,
-                    dimensions: (width, height),
-                    center: (center_x, center_y),
-                    angle,
-                };
-                content.push(MacroContent::CenterLine(center_line));
-            }
-            _ => {
-                read_params(&mut params, parser_context, &mut line_state)?;
-                log::error!(
-                    "Unsupported primitive type: {}, line: {}, params: {}",
-                    params[0],
-                    line,
-                    params[1..].join(", ")
-                );
+                    // Parse rotation angle from the last parameter
+                    let angle = params
+                        .pop()
+                        .map(|angle_str| parse_macro_decimal(&angle_str))
+                        .transpose()?
+                        .unwrap_or(MacroDecimal::Value(0.0));
 
-                return Err(ContentError::UnsupportedMacroDefinition);
+                    let center_line = CenterLinePrimitive {
+                        exposure,
+                        dimensions: (width, height),
+                        center: (center_x, center_y),
+                        angle,
+                    };
+                    content.push(MacroContent::CenterLine(center_line));
+                }
+                _ => {
+                    read_params(&mut params, parser_context, &mut line_state)?;
+                    log::error!(
+                        "Unsupported primitive type: {}, line: {}, params: {}",
+                        params[0],
+                        line,
+                        params[1..].join(", ")
+                    );
+
+                    return Err(ContentError::UnsupportedMacroDefinition);
+                }
             }
         }
 
