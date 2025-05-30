@@ -17,7 +17,7 @@ repository = "https://github.com/NemoAndrea/gerber-parser"
 [dependencies]
 # currently un-released, using latest gerber-types with updates to support macro expressions
 #gerber-types = "0.4.0"
-gerber-types = { git = "https://github.com/makerpnp/gerber-types-rs.git", rev = "41b8ab178fb6ee646dfba3f000db1b1b8a9ae167"}
+gerber-types = { git = "https://github.com/makerpnp/gerber-types-rs.git", rev = "e48e1653e581f8ab66cd860f0c0e401764c95cc2"}
 
 # errors
 thiserror = "2.0.12"
