@@ -1,57 +1,82 @@
-use std::io::{Read, BufReader, BufRead};
+use std::io::{Read, BufReader, BufRead, Lines};
 
-use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat,
-                   Aperture, Circle, Rectangular, Polygon, MCode, DCode, Polarity,
-                   InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, 
-                   CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, 
-                   FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat};
+use gerber_types::{Command, ExtendedCode, Unit, FunctionCode, GCode, CoordinateFormat, Aperture, ApertureMacro, Circle, Rectangular, Polygon, MCode, DCode, Polarity, InterpolationMode, QuadrantMode, Operation, Coordinates, CoordinateNumber, CoordinateOffset, ApertureAttribute, ApertureFunction, FiducialScope, SmdPadType, FileAttribute, FilePolarity, Part, FileFunction, StepAndRepeat, MacroDecimal, OutlinePrimitive, MacroContent, PolygonPrimitive};
 use regex::Regex;
 use std::str::Chars;
 use crate::error::GerberParserError;
 use crate::gerber_doc::{ GerberDoc};
 use lazy_regex::*;
-use log::{debug, warn};
 
 // naively define some regex terms
 // TODO see which ones can be done without regex for better performance?
 static RE_UNITS: Lazy<Regex> = lazy_regex!(r"%MO(.*)\*%");
 static RE_COMMENT: Lazy<Regex> = lazy_regex!(r"G04 (.*)\*");
 static RE_FORMAT_SPEC: Lazy<Regex> = lazy_regex!(r"%FSLAX(.*)Y(.*)\*%");
-static RE_APERTURE: Lazy<Regex> = lazy_regex!(r"%ADD([0-9]+)([A-Z]),(.*)\*%");
-static RE_INTERPOLATION: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?I?(-?[0-9]+)?J?(-?[0-9]+)?D01\*");
-static RE_MOVE_OR_FLASH: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?D0[2-3]*");
+static RE_APERTURE: Lazy<Regex> = lazy_regex!(r"%ADD([0-9]+)(([A-Z]),(.*)|(.*))\*%");
+static RE_INTERPOLATION: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?I?(-?[0-9]+)?J?(-?[0-9]+)?D(0)?1\*");
+static RE_MOVE_OR_FLASH: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?D(0)?[2-3]*");
 static RE_IMAGE_NAME: Lazy<Regex> = lazy_regex!(r"%IN(.*)\*%");
-static RE_IMAGE_POLARITY: Lazy<Regex> = lazy_regex!(r"%IP(.*)\*%");
-// TODO: handle escaped characters for attributes
-static RE_ATTRIBUTES: Lazy<Regex> = lazy_regex!(r"%T[A-Z].([A-Z]+?),?");
 static RE_STEP_REPEAT: Lazy<Regex> = lazy_regex!(r"%SRX([0-9]+)Y([0-9]+)I(\d+\.?\d*)J(\d+\.?\d*)\*%");
 
 
-/// Parse a gerber string (in BufReader) to a GerberDoc
+struct ParserContext<T: Read> {
+    line_number: usize,
+    lines: Lines<BufReader<T>>,
+}
+
+impl<T: Read> ParserContext<T> {
+    pub fn new(lines: Lines<BufReader<T>>) -> ParserContext<T> {
+        ParserContext {
+            line_number: 0,
+            lines,
+        }
+    }
+
+    pub fn next(&mut self) -> Option<Result<String, GerberParserError>> {
+        let line = self.lines.next();
+        if line.is_some() {
+            self.line_number += 1;
+        }
+        line
+            .map(|result|{
+                result.map_err(|e|GerberParserError::IoError(format!("IO error on line: {}, error: {}", self.line_number, e).to_string()))
+            })
+    }
+}
+
+// TODO change the API so it doesn't panic on IO errors, i.e. replace this with `parse_gerber_inner`
+pub fn parse_gerber<T: Read>(reader: BufReader<T>) -> GerberDoc {
+    parse_gerber_inner(reader).unwrap()
+}
+
+// Parse a gerber string (in BufReader) to a GerberDoc
 ///
 /// Take the contents of a Gerber (.gbr) file and parse it to a GerberDoc struct. The parsing does
 /// some semantic checking, but is certainly not exhaustive - so don't rely on it to check if
 /// your Gerber file is valid according to the spec. Some of the parsing steps are greedy - they may
 /// match something unexpected (rather than panicking) if there is a typo/fault in your file.
-pub fn parse_gerber<T: Read>(reader: BufReader<T>) -> GerberDoc {
+fn parse_gerber_inner<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, GerberParserError> {
     let mut gerber_doc = GerberDoc::new();
-    // The gerber spec allows omission of X or Y statements in D01/2/3 commands, where the omitted
-    // coordinate is to be taken as whatever was used in the previous coordinate-using command
-    // By default the 'last coordinate' can be taken to be (0,0)
-    let mut last_coords = (0i64,0i64);
-    
 
-    for (line_num_indexed_from_0, line) in reader.lines().enumerate() {
-        let line_number = line_num_indexed_from_0 + 1;
-        let raw_line = line.expect(&format!("IO Error reading line {}", line_num_indexed_from_0)); 
+    let mut parser_context = ParserContext::new(reader.lines());
+
+    loop {
+        let Some(line_result) = parser_context.next() else {
+            break
+        };
+        
+        let line_number = parser_context.line_number;
+        
+        let raw_line = line_result?;
         // TODO combine this with line above
         let line = raw_line.trim();
 
         // Show the line 
         //log::debug!("{}. {}", index + 1, &line);
+        println!("{}. {}", line_number, &line);
         
         if !line.is_empty() {
-            let line_result = match parse_line(line, &mut gerber_doc, &mut last_coords) {
+            let line_result = match parse_line(line, &mut gerber_doc, &mut parser_context) {
                 Ok(command) => {
                     log::debug!("Found command: {:?}", command);
                     Ok(command)
@@ -76,13 +101,13 @@ pub fn parse_gerber<T: Read>(reader: BufReader<T>) -> GerberDoc {
             }
         }
     }
-    return gerber_doc
+    return Ok(gerber_doc)
 }
 
 
-fn parse_line(line: &str, 
-              gerber_doc: &mut GerberDoc, 
-              last_coords: &mut (i64,i64)
+fn parse_line<T: Read>(line: &str,
+              gerber_doc: &mut GerberDoc,
+              parser_context: &mut ParserContext<T>
 ) -> Result<Command, GerberParserError> {
     let mut linechars = line.chars();
 
@@ -159,7 +184,14 @@ fn parse_line(line: &str,
                             Err(err) => Err(err)
                         }
                     }, 
-                    'M' => Err(GerberParserError::UnsupportedCommand {}), // AM
+                    'M' => {
+                        match parse_aperture_macro_definition(line, parser_context) {
+                            Ok(macro_def) => {
+                                Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(macro_def)))
+                            },
+                            Err(err) => Err(err)
+                        }
+                    }, // AM
                     _ => Err(GerberParserError::UnknownCommand {})
                 },
                 'L' => match linechars.next().ok_or(GerberParserError::UnknownCommand{})? {
@@ -213,15 +245,15 @@ fn parse_line(line: &str,
         'X' | 'Y' => {
             linechars.next_back(); 
             match linechars.next_back().ok_or(GerberParserError::UnknownCommand{})? {
-                '1' => parse_interpolation(line, &gerber_doc, last_coords), // D01
-                '2' => parse_move_or_flash(line, &gerber_doc, last_coords, false), // D02
-                '3' => parse_move_or_flash(line, &gerber_doc, last_coords, true), // D03
+                '1' => parse_interpolation(line, &gerber_doc), // D01
+                '2' => parse_move_or_flash(line, &gerber_doc, false), // D02
+                '3' => parse_move_or_flash(line, &gerber_doc, true), // D03
                 _ => Err(GerberParserError::UnknownCommand{})
             }
         },
-        'D' => { // select aperture D<num>*                   
+        'D' => { // select aperture D<num>* (where num >= 10) or command where num < 10
             linechars.next_back(); // remove the trailing '*'
-            parse_aperture_selection(linechars, &gerber_doc)
+            parse_aperture_selection_or_command(line, linechars, &gerber_doc)
         },
         'M' => Ok(FunctionCode::MCode(MCode::EndOfFile).into()),
         _ => Err(GerberParserError::UnknownCommand {})
@@ -236,6 +268,7 @@ fn parse_comment(line: &str) -> Result<Command, GerberParserError> {
             let comment = regmatch.get(1)
                 .ok_or(GerberParserError::MissingRegexCapture{
                     regex: RE_COMMENT.clone(),
+                    capture_index: 1,
                 })?
                 .as_str();
             Ok(FunctionCode::GCode(GCode::Comment(comment.to_string())).into())
@@ -255,7 +288,7 @@ fn parse_image_name(line: &str, gerber_doc: &GerberDoc) -> Result<String, Gerber
         match RE_IMAGE_NAME.captures(line) {
             Some(regmatch) => {
                 let image_name = regmatch.get(1)
-                    .ok_or(GerberParserError::MissingRegexCapture{regex: RE_IMAGE_NAME.clone()})?
+                    .ok_or(GerberParserError::MissingRegexCapture{regex: RE_IMAGE_NAME.clone(), capture_index: 1})?
                     .as_str();
                 Ok(String::from(image_name))
             }
@@ -266,6 +299,146 @@ fn parse_image_name(line: &str, gerber_doc: &GerberDoc) -> Result<String, Gerber
     }
 }
 
+/// Safety: the method should only be called if the line starts with %AM
+fn parse_aperture_macro_definition<T: Read>(first_line: &str, parser_context: &mut ParserContext<T>,) -> Result<ApertureMacro, GerberParserError> {
+
+    // Extract the macro name from the AM command
+    let re_macro = Regex::new(r"%AM([^*%]*)").unwrap();
+    let macro_name = re_macro.captures(first_line)
+        .and_then(|cap| cap.get(1))
+        .map(|m| m.as_str().trim())
+        .ok_or(GerberParserError::InvalidMacroName)?
+        .to_string();
+
+    let mut content = Vec::new();
+    
+    // Read and parse the macro content lines until we find the end marker ("%")
+    while let Some(line_result) = parser_context.next() {
+        let line = line_result?.trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Split the line by commas and convert to a vector of strings
+        let params: Vec<&str> = line.trim_end_matches('*').split(',').collect();
+
+        if params.is_empty() {
+            continue;
+        }
+
+        // Parse outline primitive (type 4)
+        // TODO would be nice to have constants for the values in gerber-types. e.g. const APERTURE_MACRO_TYPE_OUTLINE: u8 = 4;
+        match params[0].parse::<u8>() {
+            Ok(4) => {
+                // Handle outline primitive
+                if params.len() < 3 {
+                    return Err(GerberParserError::InvalidMacroDefinition("expected 3 parameters for outline".to_string()));
+                }
+
+                // Parse exposure and number of points
+                let exposure = params[1].trim() == "1";
+                let num_points = params[2].trim().parse::<usize>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line
+                    })?;
+
+                // Collect points from subsequent lines
+                let mut points = Vec::new();
+                // `num_points` is actually one fewer than the number of points in the macro definition, so we use `<=` here
+                while points.len() <= num_points {
+                    if let Some(point_line) = parser_context.next() {
+                        let point_line = point_line?;
+                        let coords: Vec<&str> = point_line.trim().trim_end_matches('*').split(',').collect();
+                        if coords.len() >= 2 {
+                            let x = coords[0].trim().parse::<f64>().map_err(|_|
+                                GerberParserError::ApertureDefinitionParseFailed {
+                                    aperture_definition_str: point_line.clone()
+                                })?;
+                            let y = coords[1].trim().parse::<f64>().map_err(|_|
+                                GerberParserError::ApertureDefinitionParseFailed {
+                                    aperture_definition_str: point_line.clone()
+                                })?;
+                            points.push((MacroDecimal::Value(x), MacroDecimal::Value(y)));
+                        }
+                    } else {
+                        return Err(GerberParserError::InvalidMacroDefinition("Missing outline point line.".to_string()));
+                    }
+                }
+
+                // Parse rotation angle from the last line
+                if let Some(angle_line) = parser_context.next() {
+                    let angle_line = angle_line?;
+                    let angle = angle_line.trim().trim_end_matches('*').parse::<f64>().unwrap_or(0.0);
+
+                    let outline = OutlinePrimitive {
+                        exposure,
+                        points,
+                        angle: MacroDecimal::Value(angle),
+                    };
+
+                    content.push(MacroContent::Outline(outline));
+                } else {
+                    return Err(GerberParserError::InvalidMacroDefinition("Missing angle line".to_string()));
+                }
+                break 
+            }
+            Ok(5) => {
+                // Handle polygon primitive
+                if params.len() < 7 {
+                    return Err(GerberParserError::InvalidMacroDefinition("Expected 7 parameters for polygon".to_string()));
+                }
+
+                let exposure = params[1].parse::<u8>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })? == 1;
+                let vertices = params[2].parse::<u8>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })?;
+                let center_x = MacroDecimal::Value(params[3].parse::<f64>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })?);
+                let center_y = MacroDecimal::Value(params[4].parse::<f64>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })?);
+                let diameter = MacroDecimal::Value(params[5].parse::<f64>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })?);
+                let angle = MacroDecimal::Value(params[6].trim_end_matches("*%").parse::<f64>().map_err(|_|
+                    GerberParserError::ApertureDefinitionParseFailed {
+                        aperture_definition_str: line.clone()
+                    })?);
+
+                content.push(MacroContent::Polygon(PolygonPrimitive {
+                    exposure,
+                    vertices,
+                    center: (center_x, center_y),
+                    diameter,
+                    angle,
+                }));
+                break
+            },
+            _ => {
+                // TODO support other primitives, like circle, rectangle, vector-line, center-line, etc.
+                while let Some(line_result) = parser_context.next() {
+                    let line = line_result?;
+                    let line = line.trim();
+                    if line.ends_with("%*") {
+                        break;
+                    }
+                }
+                return Err(GerberParserError::UnsupportedMacroDefinition)
+            },
+            
+        }
+    }
+
+    Ok(ApertureMacro { name: macro_name, content })
+}
 
 /// parse a Gerber unit statement (e.g. '%MOMM*%')
 fn parse_units(line: &str, gerber_doc: &GerberDoc) -> Result<Unit, GerberParserError> {
@@ -276,7 +449,7 @@ fn parse_units(line: &str, gerber_doc: &GerberDoc) -> Result<Unit, GerberParserE
         match RE_UNITS.captures(line) {
             Some(regmatch) => {
                 let units_str = regmatch.get(1)
-                    .ok_or(GerberParserError::MissingRegexCapture{regex: RE_UNITS.clone()})?
+                    .ok_or(GerberParserError::MissingRegexCapture{regex: RE_UNITS.clone(), capture_index: 1})?
                     .as_str();
                 match units_str {
                     "MM" => Ok(Unit::Millimeters),
@@ -299,7 +472,7 @@ fn parse_format_spec(line: &str, gerber_doc: &GerberDoc) -> Result<CoordinateFor
         match RE_FORMAT_SPEC.captures(line) {
             Some(regmatch) => {
                 let mut fs_chars = regmatch.get(1)
-                    .ok_or(GerberParserError::MissingRegexCapture{regex: RE_FORMAT_SPEC.clone()})?
+                    .ok_or(GerberParserError::MissingRegexCapture{regex: RE_FORMAT_SPEC.clone(), capture_index: 1})?
                     .as_str().chars();
                 let integer:u8 = parse_char(fs_chars.next()
                     .ok_or(GerberParserError::ParseFormatErrorWrongNumDigits {})?)?;
@@ -328,90 +501,99 @@ fn parse_char(char_in: char) -> Result<u8, GerberParserError> {
 
 // parse a Gerber aperture definition e.g. '%ADD44R, 2.0X3.0*%')
 fn parse_aperture_defs(line: &str, gerber_doc: &GerberDoc) -> Result<(i32, Aperture), GerberParserError> {
-    // aperture definitions
-    match RE_APERTURE.captures(line) {
-        Some(regmatch) => {
-            let code_str = regmatch.get(1)
-                .ok_or(GerberParserError::MissingRegexCapture{regex: RE_APERTURE.clone()})?
-                .as_str();
-            let code = parse_aperture_code(code_str)?;
+    
+    let Some(captures) = RE_APERTURE.captures(line) else {
+        return Err(GerberParserError::NoRegexMatch{regex: RE_APERTURE.clone()})
+    };
+    
+    // Parse aperture code
+    let code_str = captures.get(1)
+        .ok_or(GerberParserError::MissingRegexCapture{ regex: RE_APERTURE.clone(), capture_index: 1})?
+        .as_str();
+    let code = parse_aperture_code(code_str)?;
 
-            let aperture_type = regmatch.get(2)
-                .ok_or(GerberParserError::MissingRegexCapture{regex: RE_APERTURE.clone()})?
-                .as_str();
-            let aperture_args: Vec<&str> = regmatch.get(3)
-                .ok_or(GerberParserError::MissingRegexCapture{regex: RE_APERTURE.clone()})?
-                .as_str().split("X").collect();
-            
-            if gerber_doc.apertures.contains_key(&code){
-                return Err(GerberParserError::ApertureDefinedTwice{aperture_code: code});
-            }
+    let aperture_def = captures.get(2)
+        .ok_or(GerberParserError::MissingRegexCapture{regex: RE_APERTURE.clone(), capture_index: 2})?
+        .as_str();
 
-            //log::debug!("The code is {}, and the aperture type is {} with params {:?}", code, aperture_type, aperture_args);
-            match aperture_type {
-                "C" => Ok((code, Aperture::Circle(Circle {
-                    diameter: aperture_args[0].trim().parse::<f64>()
-                        .map_err(|_| {
-                            GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
-                        })?,
-                    hole_diameter: if aperture_args.len() > 1 {
-                        Some(aperture_args[1].trim().parse::<f64>()
-                            .map_err(|_| {
-                                GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
-                            })?
-                        )
-                    } else { None }
-                }))),
-                "R" => Ok((code, Aperture::Rectangle(Rectangular {
-                    x: parse_coord::<f64>(aperture_args[0])?,
-                    y: parse_coord::<f64>(aperture_args[1])?,
-                    hole_diameter: if aperture_args.len() > 2 {
-                        Some(aperture_args[2].trim().parse::<f64>()
-                            .map_err(|_| {
-                                GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
-                            })?
-                        )
-                    } else { None }
-                }))),
-                "O" => Ok((code, Aperture::Obround(Rectangular {
-                    x: parse_coord::<f64>(aperture_args[0])?,
-                    y: parse_coord::<f64>(aperture_args[1])?,
-                    hole_diameter: if aperture_args.len() > 2 {
-                        Some(aperture_args[2].trim().parse::<f64>()
-                            .map_err(|_| {
-                                GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
-                            })?)
-                    } else { None }
-                }))),
-                // note that for polygon we HAVE TO specify rotation if we want to add a hole
-                "P" => Ok((code, Aperture::Polygon(Polygon {
-                    diameter: aperture_args[0].trim().parse::<f64>()
-                        .map_err(|_| {
-                            GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
-                        })?,
-                    vertices: aperture_args[1].trim().parse::<u8>()
-                        .map_err(|_| {
-                            GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
-                        })?,
-                    rotation: if aperture_args.len() > 2 {
-                        Some(aperture_args[2].trim().parse::<f64>()
-                            .map_err(|_| {
-                                GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
-                            })?)
-                    } else { None },
-                    hole_diameter: if aperture_args.len() > 3 {
-                        Some(aperture_args[3].trim().parse::<f64>()
-                            .map_err(|_| {
-                                GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
-                            })?)
-                    } else { None }
-                }))),
-                unknown_type => { 
-                    Err(GerberParserError::UnknownApertureType{type_str: unknown_type.to_string()})
-                }
-            }
+    if !aperture_def.contains(',') {
+        return Ok((code, Aperture::Other(aperture_def.to_string())));
+    }
+
+    let aperture_kind = captures.get(3)
+        .ok_or(GerberParserError::MissingRegexCapture{regex: RE_APERTURE.clone(), capture_index: 3})?
+        .as_str();
+
+    let aperture_args: Vec<&str> = captures.get(4)
+        .ok_or(GerberParserError::MissingRegexCapture{regex: RE_APERTURE.clone(), capture_index: 4})?
+        .as_str().split("X").collect();
+    
+    if gerber_doc.apertures.contains_key(&code){
+        return Err(GerberParserError::ApertureDefinedTwice{aperture_code: code});
+    }
+
+    //log::debug!("The code is {}, and the aperture type is {} with params {:?}", code, aperture_type, aperture_args);
+    match aperture_kind {
+        "C" => Ok((code, Aperture::Circle(Circle {
+            diameter: aperture_args[0].trim().parse::<f64>()
+                .map_err(|_| {
+                    GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
+                })?,
+            hole_diameter: if aperture_args.len() > 1 {
+                Some(aperture_args[1].trim().parse::<f64>()
+                    .map_err(|_| {
+                        GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
+                    })?
+                )
+            } else { None }
+        }))),
+        "R" => Ok((code, Aperture::Rectangle(Rectangular {
+            x: parse_coord::<f64>(aperture_args[0])?,
+            y: parse_coord::<f64>(aperture_args[1])?,
+            hole_diameter: if aperture_args.len() > 2 {
+                Some(aperture_args[2].trim().parse::<f64>()
+                    .map_err(|_| {
+                        GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
+                    })?
+                )
+            } else { None }
+        }))),
+        "O" => Ok((code, Aperture::Obround(Rectangular {
+            x: parse_coord::<f64>(aperture_args[0])?,
+            y: parse_coord::<f64>(aperture_args[1])?,
+            hole_diameter: if aperture_args.len() > 2 {
+                Some(aperture_args[2].trim().parse::<f64>()
+                    .map_err(|_| {
+                        GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
+                    })?)
+            } else { None }
+        }))),
+        // note that for polygon we HAVE TO specify rotation if we want to add a hole
+        "P" => Ok((code, Aperture::Polygon(Polygon {
+            diameter: aperture_args[0].trim().parse::<f64>()
+                .map_err(|_| {
+                    GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
+                })?,
+            vertices: aperture_args[1].trim().parse::<u8>()
+                .map_err(|_| {
+                    GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
+                })?,
+            rotation: if aperture_args.len() > 2 {
+                Some(aperture_args[2].trim().parse::<f64>()
+                    .map_err(|_| {
+                        GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
+                    })?)
+            } else { None },
+            hole_diameter: if aperture_args.len() > 3 {
+                Some(aperture_args[3].trim().parse::<f64>()
+                    .map_err(|_| {
+                        GerberParserError::ParseApertureDefinitionBodyError{aperture_code: code}
+                    })?)
+            } else { None }
+        }))),
+        unknown_type => { 
+            Err(GerberParserError::UnknownApertureType{type_str: unknown_type.to_string()})
         }
-        None => Err(GerberParserError::NoRegexMatch{regex: RE_APERTURE.clone()})
     }
 }
 
@@ -423,62 +605,78 @@ fn parse_coord<T: std::str::FromStr>(coord_str: &str) -> Result<T, GerberParserE
 
 fn parse_aperture_code(code_str: &str) -> Result<i32, GerberParserError> {
     match code_str.parse::<i32>(){
-        Ok(v) if (v > 9) => {
+        Ok(v) if v >= 10 => {
             Ok(v)
+        }
+        Ok(_v) => {
+            Err(GerberParserError::ApertureCodeParseFailed{ aperture_code_str: code_str.to_string() })
         }
         Err(_) => {
             Err(GerberParserError::ApertureCodeParseFailed { aperture_code_str: code_str.to_string() })
         }
-        Ok(v) => {
-            Err(GerberParserError::ApertureCodeParseFailed{ aperture_code_str: code_str.to_string() })
-        }
     }
 }
-fn parse_aperture_selection(
+fn parse_aperture_selection_or_command(
+    line: &str,
     linechars: Chars,
     gerber_doc: &GerberDoc
 )
     -> Result<Command, GerberParserError>
 {
     let aperture_str = linechars.as_str();
-    let aperture_code = parse_aperture_code(aperture_str)?;
-    match gerber_doc.apertures.contains_key(&aperture_code) {
-        true => {
-            Ok(FunctionCode::DCode(DCode::SelectAperture(aperture_code)).into())
+    if let Ok(aperture_code) = parse_aperture_code(aperture_str) {
+        match gerber_doc.apertures.contains_key(&aperture_code) {
+            true => {
+                Ok(FunctionCode::DCode(DCode::SelectAperture(aperture_code)).into())
+            }
+            false => {
+                Err(GerberParserError::ApertureNotDefined{aperture_code})
+            }
         }
-        false => {
-            Err(GerberParserError::ApertureNotDefined{aperture_code})
-        }
+    } else {
+        parse_command(line, gerber_doc)
     }
 }
 
+fn parse_command(command_str: &str, gerber_doc: &GerberDoc) -> Result<Command, GerberParserError> {
+    static RE_STANDALONE_D: Lazy<Regex> = lazy_regex!(r"D(0)?([1-3])\*");
+    if let Some(captures) = RE_STANDALONE_D.captures(command_str) {
+        let command_code = captures.get(2).unwrap().as_str(); {
+
+            let format = gerber_doc.format_specification.ok_or(
+                GerberParserError::OperationBeforeFormat{}
+            )?;
+            
+            let coords = Coordinates{
+                x: None,
+                y: None,
+                format,
+            };
+
+            let operation = match command_code {
+                "1" => Operation::Interpolate(coords, None),
+                "2" => Operation::Move(coords),
+                "3" => Operation::Flash(coords),
+                _ => unreachable!()
+            };
+            Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(operation))))
+        }
+    } else {
+        Err(GerberParserError::UnknownCommand {})
+    }
+}
 
 // parse a Gerber interpolation command (e.g. 'X2000Y40000I300J50000D01*')
 fn parse_interpolation(
     line: &str,
     gerber_doc: &GerberDoc, 
-    last_coords: &mut (i64, i64)
 )
     -> Result<Command, GerberParserError> 
 {
     match RE_INTERPOLATION.captures(line) {
         Some(regmatch) => {
-            let x_coord = match regmatch.get(1) {
-                Some(x) => { 
-                    let new_x = parse_coord::<i64>(x.as_str())?;
-                    last_coords.0 = new_x;
-                    new_x
-                }
-                None => last_coords.0, // if match is None, then the coordinate must have been implicit
-            };
-            let y_coord = match regmatch.get(2) {
-                Some(y) => {
-                    let new_y = parse_coord::<i64>(y.as_str())?;
-                    last_coords.1 = new_y;
-                    new_y
-                }
-                None => last_coords.1, // if match is None, then the coordinate must have been implicit
-            };
+            let x_coord = regmatch.get(1).map(|x| parse_coord::<i64>(x.as_str())).transpose()?;
+            let y_coord = regmatch.get(2).map(|y| parse_coord::<i64>(y.as_str())).transpose()?;
     
             if let Some((i_offset_raw, j_offset_raw)) = regmatch
                 .get(3)
@@ -489,7 +687,7 @@ fn parse_interpolation(
     
                 Ok(FunctionCode::DCode(DCode::Operation(
                     Operation::Interpolate(
-                        coordinates_from_gerber(
+                        partial_coordinates_from_gerber(
                             x_coord, 
                             y_coord, 
                             gerber_doc.format_specification.ok_or(
@@ -506,7 +704,7 @@ fn parse_interpolation(
             } else { // linear interpolation, only X,Y parameters
                 Ok(FunctionCode::DCode(DCode::Operation(
                     Operation::Interpolate(
-                        coordinates_from_gerber(
+                        partial_coordinates_from_gerber(
                             x_coord, 
                             y_coord, 
                             gerber_doc.format_specification.ok_or(
@@ -527,31 +725,16 @@ fn parse_interpolation(
 fn parse_move_or_flash(
     line: &str,
     gerber_doc: &GerberDoc, 
-    last_coords: &mut (i64, i64), 
     flash: bool
 ) 
     -> Result<Command, GerberParserError> 
 {
     match RE_MOVE_OR_FLASH.captures(line) {
         Some(regmatch) => {
-            let x_coord = match regmatch.get(1) {
-                Some(x) => {
-                    let new_x = parse_coord::<i64>(x.as_str())?;
-                    last_coords.0 = new_x;
-                    new_x
-                }
-                None => last_coords.0, // if match is None, then the coordinate must have been implicit
-            };
-            let y_coord = match regmatch.get(2) {
-                Some(y) => {
-                    let new_y = parse_coord::<i64>(y.as_str())?;
-                    last_coords.1 = new_y;
-                    new_y
-                }
-                None => last_coords.1, // if match is None, then the coordinate must have been implicit
-            };
+            let x_coord = regmatch.get(1).map(|x| parse_coord::<i64>(x.as_str())).transpose()?;
+            let y_coord = regmatch.get(2).map(|y| parse_coord::<i64>(y.as_str())).transpose()?;
             
-            let coords = coordinates_from_gerber(
+            let coords = partial_coordinates_from_gerber(
                 x_coord,
                 y_coord,
                 gerber_doc.format_specification
@@ -575,16 +758,16 @@ fn parse_step_repeat_open(line: &str) -> Result<Command, GerberParserError> {
         Some(regmatch) => {
             Ok(ExtendedCode::StepAndRepeat(StepAndRepeat::Open{
                 repeat_x: parse_coord::<u32>(regmatch.get(1).ok_or(
-                    GerberParserError::MissingRegexCapture{regex: RE_STEP_REPEAT.clone()}
+                    GerberParserError::MissingRegexCapture{regex: RE_STEP_REPEAT.clone(), capture_index: 1}
                 )?.as_str())?,
                 repeat_y: parse_coord::<u32>(regmatch.get(2).ok_or(
-                    GerberParserError::MissingRegexCapture{regex: RE_STEP_REPEAT.clone()}
+                    GerberParserError::MissingRegexCapture{regex: RE_STEP_REPEAT.clone(), capture_index: 2}
                 )?.as_str())?,
                 distance_x: parse_coord::<f64>(regmatch.get(3).ok_or(
-                    GerberParserError::MissingRegexCapture{regex: RE_STEP_REPEAT.clone()}
+                    GerberParserError::MissingRegexCapture{regex: RE_STEP_REPEAT.clone(), capture_index: 3}
                 )?.as_str())?,
                 distance_y: parse_coord::<f64>(regmatch.get(4).ok_or(
-                    GerberParserError::MissingRegexCapture{regex: RE_STEP_REPEAT.clone()}
+                    GerberParserError::MissingRegexCapture{regex: RE_STEP_REPEAT.clone(), capture_index: 4}
                 )?.as_str())?,
             }).into())
         }
@@ -604,8 +787,6 @@ fn parse_step_repeat_open(line: &str) -> Result<Command, GerberParserError> {
 /// ⚠️ This parsing statement needs a lot of tests and validation at the current stage!
 fn parse_file_attribute(line: Chars) -> Result<FileAttribute, GerberParserError> {
 
-    let raw_line = line.as_str().to_string();
-    
     let attr_args = get_attr_args(line)?;
     if attr_args.len() >= 2 {  // we must have at least 1 field
         //log::debug!("TF args are: {:?}", attr_args);
@@ -772,6 +953,31 @@ pub fn coordinates_from_gerber(
     x_as_int *= 10i64.pow(factor);
     y_as_int *= 10i64.pow(factor);
     Coordinates::new(CoordinateNumber::new(x_as_int), CoordinateNumber::new(y_as_int), fs)
+}
+
+pub fn partial_coordinates_from_gerber(
+    x_as_int: Option<i64>,
+    y_as_int: Option<i64>,
+    fs: CoordinateFormat
+)
+    -> Coordinates
+{
+    // we have the raw gerber string as int but now have to convert it to nano precision format 
+    // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
+    let factor = (6u8 - fs.decimal) as u32;
+    let x = x_as_int.map(|value| value * 10i64.pow(factor));
+    let y = y_as_int.map(|value| value * 10i64.pow(factor));
+    
+    match (x,y)  {
+        (Some(x), Some(y)) => Coordinates::new(CoordinateNumber::new(x), CoordinateNumber::new(y), fs),
+        (None, Some(y)) => Coordinates::at_y(CoordinateNumber::new(y), fs),
+        (Some(x), None) => Coordinates::at_x(CoordinateNumber::new(x), fs),
+        (None, None) => Coordinates {
+            x: None,
+            y: None,
+            format: fs,
+        }
+    }
 }
 
 

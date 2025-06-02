@@ -1,5 +1,4 @@
 use std::fmt::Formatter;
-use gerber_types::Aperture;
 use regex::Regex;
 use thiserror::Error;
 
@@ -16,9 +15,10 @@ pub enum GerberParserError {
         regex: Regex,
     },
     #[error("Command was uniquely identified, and matched expected regex, \
-    but did not contain the expected capture(s).\nRegex: {regex}.")]
+    but did not contain the expected capture(s).\nRegex: {regex}. capture index: {capture_index}")]
     MissingRegexCapture{
         regex: Regex,
+        capture_index: usize,
     },
     #[error("After gerber doc was already assigned a name, another name command was found.")]
     TriedToSetImageNameTwice{},
@@ -45,6 +45,10 @@ pub enum GerberParserError {
     #[error("tried to parse '{aperture_code_str}' as an aperture code (integer) greater than 9 but failed.")]
     ApertureCodeParseFailed{
         aperture_code_str: String,
+    },
+    #[error("tried to parse '{aperture_definition_str}' as an aperture definition but failed.")]
+    ApertureDefinitionParseFailed{
+        aperture_definition_str: String,
     },
     #[error("tried to parse the definition of aperture '{aperture_code}' but failed.")]
     ParseApertureDefinitionBodyError{
@@ -103,7 +107,15 @@ pub enum GerberParserError {
     but found {number_str} which could not be parsed as an f64.")]
     DrillToleranceParseNumError{
         number_str: String,
-    }
+    },
+    #[error("IO error occurred: {0}")]
+    IoError(String),
+    #[error("Macro name is invalid.")]
+    InvalidMacroName,
+    #[error("Unsupported macro definition.")]
+    UnsupportedMacroDefinition,
+    #[error("Invalid macro definition. cause: '{0}'")]
+    InvalidMacroDefinition(String),
 }
 
 
