@@ -160,52 +160,58 @@ fn parse_line<T: Read>(
             match linechars.next().ok_or(ContentError::UnknownCommand {})? {
                 '0' => {
                     let remaining_line = &line[3..];
+                    let using_deprecated_syntax = remaining_line.len() > 1;
+                    let mut commands = Vec::with_capacity(1);
                     match linechars.next().ok_or(ContentError::UnknownCommand {})? {
                         '1' => {
                             // G01
-                            let result1 = Ok(FunctionCode::GCode(GCode::InterpolationMode(
+                            commands.push(Ok(FunctionCode::GCode(GCode::InterpolationMode(
                                 InterpolationMode::Linear,
                             ))
-                            .into());
-                            let result2 = parse_interpolate_move_or_flash(
-                                remaining_line,
-                                gerber_doc,
-                                &mut linechars,
-                            );
-                            Ok(vec![result1, result2])
+                            .into()));
+                            if using_deprecated_syntax {
+                                commands.push(parse_interpolate_move_or_flash(
+                                    remaining_line,
+                                    gerber_doc,
+                                    &mut linechars,
+                                ));
+                            }
                         }
                         '2' => {
                             // G02
-                            let result1 = Ok(FunctionCode::GCode(GCode::InterpolationMode(
+                            commands.push(Ok(FunctionCode::GCode(GCode::InterpolationMode(
                                 InterpolationMode::ClockwiseCircular,
                             ))
-                            .into());
-                            let result2 = parse_interpolate_move_or_flash(
-                                remaining_line,
-                                gerber_doc,
-                                &mut linechars,
-                            );
-                            Ok(vec![result1, result2])
+                            .into()));
+                            if using_deprecated_syntax {
+                                commands.push(parse_interpolate_move_or_flash(
+                                    remaining_line,
+                                    gerber_doc,
+                                    &mut linechars,
+                                ));
+                            }
                         }
                         '3' => {
                             // G03
-                            let result1 = Ok(FunctionCode::GCode(GCode::InterpolationMode(
+                            commands.push(Ok(FunctionCode::GCode(GCode::InterpolationMode(
                                 InterpolationMode::CounterclockwiseCircular,
                             ))
-                            .into());
-                            let result2 = parse_interpolate_move_or_flash(
-                                remaining_line,
-                                gerber_doc,
-                                &mut linechars,
-                            );
-                            Ok(vec![result1, result2])
+                            .into()));
+                            if using_deprecated_syntax {
+                                commands.push(parse_interpolate_move_or_flash(
+                                    remaining_line,
+                                    gerber_doc,
+                                    &mut linechars,
+                                ));
+                            }
                         }
                         '4' => {
                             // G04
-                            Ok(vec![parse_comment(line)])
+                            commands.push(parse_comment(line))
                         }
-                        _ => Ok(vec![Err(ContentError::UnknownCommand {})]),
+                        _ => commands.push(Err(ContentError::UnknownCommand {})),
                     }
+                    Ok(commands)
                 }
                 '3' => Ok(vec![
                     match linechars.next().ok_or(ContentError::UnknownCommand {})? {

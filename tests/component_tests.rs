@@ -5,11 +5,11 @@ use gerber_parser::{
 };
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureDefinition, ApertureFunction, ApertureMacro, Circle,
-    CirclePrimitive, Command, CoordinateFormat, CoordinateOffset, Coordinates,
-    DCode, ExtendedCode, FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode,
-    InterpolationMode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Operation,
-    OutlinePrimitive, Part, Polygon, PolygonPrimitive, QuadrantMode, Rectangular, StepAndRepeat,
-    Unit, VariableDefinition, VectorLinePrimitive,
+    CirclePrimitive, Command, CoordinateFormat, CoordinateOffset, Coordinates, DCode, ExtendedCode,
+    FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode, InterpolationMode, MCode,
+    MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Operation, OutlinePrimitive, Part,
+    Polygon, PolygonPrimitive, QuadrantMode, Rectangular, StepAndRepeat, Unit, VariableDefinition,
+    VectorLinePrimitive,
 };
 
 mod utils;
@@ -111,6 +111,48 @@ fn units() {
 
     assert_eq!(parse(reader_mm).unwrap().units, Some(Unit::Millimeters));
     assert_eq!(parse(reader_in).unwrap().units, Some(Unit::Inches));
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn G01_G03_standalone() {
+    // given
+    let reader = utils::gerber_to_reader(
+        r#"
+        G01*
+        G02*
+        G03*
+        M02*
+    "#,
+    );
+
+    // when
+    let commands = parse(reader).unwrap().commands;
+    dump_commands(&commands);
+
+    // then
+    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::GCode(_))) | Ok(Command::FunctionCode(FunctionCode::MCode(MCode::EndOfFile))))
+        ).collect()};
+
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
+
+    assert_eq_commands!(
+        filtered_commands,
+        vec![
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::Linear)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::ClockwiseCircular)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::CounterclockwiseCircular)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::MCode(MCode::EndOfFile))),
+        ]
+    );
 }
 
 #[test]
