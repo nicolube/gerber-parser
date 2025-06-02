@@ -15,3 +15,6 @@
 pub mod parser;
 pub mod gerber_doc;
 pub mod error;
+
+// Since this crate is specifically designed to parse into types exposed by `gerber_types`, we re-export it here.
+pub use gerber_types;
