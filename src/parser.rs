@@ -107,24 +107,27 @@ pub fn parse<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, (GerberDoc, Par
         // Show the line
         //log::debug!("{}. {}", index + 1, &line);
         if !line.is_empty() {
-            let line_result = match parse_line(line, &mut gerber_doc, &mut parser_context) {
-                Ok(command) => {
-                    log::trace!("parsed command: {:?}", command);
-                    Ok(command)
-                }
-                Err(ContentError::IoError(error)) => {
-                    log::error!("io error: {}", error);
-                    parse_error = Some(ParseError::IoError(error));
-                    break;
-                }
-                Err(error_without_context) => {
-                    let contexted_error = error_without_context
-                        .to_with_context(Some(line.to_string()), Some(line_number));
-                    log::error!("content error: {}", contexted_error);
-                    Err(contexted_error)
-                }
-            };
-            gerber_doc.commands.push(line_result);
+            let line_results = parse_line(line, &mut gerber_doc, &mut parser_context);
+            for result in line_results.into_iter().flatten() {
+                let final_result = match result {
+                    Ok(command) => {
+                        log::trace!("parsed command: {:?}", command);
+                        Ok(command)
+                    }
+                    Err(ContentError::IoError(error)) => {
+                        log::error!("io error: {}", error);
+                        parse_error = Some(ParseError::IoError(error));
+                        break;
+                    }
+                    Err(error_without_context) => {
+                        let contexted_error = error_without_context
+                            .to_with_context(Some(line.to_string()), Some(line_number));
+                        log::error!("content error: {}", contexted_error);
+                        Err(contexted_error)
+                    }
+                };
+                gerber_doc.commands.push(final_result);
+            }
         }
     }
 
@@ -148,7 +151,7 @@ fn parse_line<T: Read>(
     line: &str,
     gerber_doc: &mut GerberDoc,
     parser_context: &mut ParserContext<T>,
-) -> Result<Command, ContentError> {
+) -> Result<Vec<Result<Command, ContentError>>, ContentError> {
     let mut linechars = line.chars();
 
     match linechars.next().unwrap() {
@@ -156,162 +159,203 @@ fn parse_line<T: Read>(
         'G' => {
             match linechars.next().ok_or(ContentError::UnknownCommand {})? {
                 '0' => {
+                    let remaining_line = &line[3..];
                     match linechars.next().ok_or(ContentError::UnknownCommand {})? {
                         '1' => {
                             // G01
-                            Ok(FunctionCode::GCode(GCode::InterpolationMode(
+                            let result1 = Ok(FunctionCode::GCode(GCode::InterpolationMode(
                                 InterpolationMode::Linear,
                             ))
-                            .into())
+                            .into());
+                            let result2 = parse_interpolate_move_or_flash(
+                                remaining_line,
+                                gerber_doc,
+                                &mut linechars,
+                            );
+                            Ok(vec![result1, result2])
                         }
                         '2' => {
                             // G02
-                            Ok(FunctionCode::GCode(GCode::InterpolationMode(
+                            let result1 = Ok(FunctionCode::GCode(GCode::InterpolationMode(
                                 InterpolationMode::ClockwiseCircular,
                             ))
-                            .into())
+                            .into());
+                            let result2 = parse_interpolate_move_or_flash(
+                                remaining_line,
+                                gerber_doc,
+                                &mut linechars,
+                            );
+                            Ok(vec![result1, result2])
                         }
                         '3' => {
                             // G03
-                            Ok(FunctionCode::GCode(GCode::InterpolationMode(
+                            let result1 = Ok(FunctionCode::GCode(GCode::InterpolationMode(
                                 InterpolationMode::CounterclockwiseCircular,
                             ))
-                            .into())
+                            .into());
+                            let result2 = parse_interpolate_move_or_flash(
+                                remaining_line,
+                                gerber_doc,
+                                &mut linechars,
+                            );
+                            Ok(vec![result1, result2])
                         }
                         '4' => {
                             // G04
-                            parse_comment(line)
+                            Ok(vec![parse_comment(line)])
                         }
-                        _ => Err(ContentError::UnknownCommand {}),
+                        _ => Ok(vec![Err(ContentError::UnknownCommand {})]),
                     }
                 }
-                '3' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                    '6' => Ok(FunctionCode::GCode(GCode::RegionMode(true)).into()), // G36
-                    '7' => Ok(FunctionCode::GCode(GCode::RegionMode(false)).into()), // G37
-                    _ => Err(ContentError::UnknownCommand {}),
-                },
-                '7' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                    // the G74 command is technically part of the Deprecated commands
-                    '4' => {
-                        Ok(FunctionCode::GCode(GCode::QuadrantMode(QuadrantMode::Single)).into())
-                    } // G74
-                    '5' => Ok(FunctionCode::GCode(GCode::QuadrantMode(QuadrantMode::Multi)).into()), // G75
-                    _ => Err(ContentError::UnknownCommand {}),
-                },
-                _ => Err(ContentError::UnknownCommand {}),
+                '3' => Ok(vec![
+                    match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        '6' => Ok(FunctionCode::GCode(GCode::RegionMode(true)).into()), // G36
+                        '7' => Ok(FunctionCode::GCode(GCode::RegionMode(false)).into()), // G37
+                        _ => Err(ContentError::UnknownCommand {}),
+                    },
+                ]),
+                '7' => Ok(vec![
+                    match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        // the G74 command is technically part of the Deprecated commands
+                        '4' => Ok(
+                            FunctionCode::GCode(GCode::QuadrantMode(QuadrantMode::Single)).into(),
+                        ), // G74
+                        '5' => Ok(
+                            FunctionCode::GCode(GCode::QuadrantMode(QuadrantMode::Multi)).into(),
+                        ), // G75
+                        _ => Err(ContentError::UnknownCommand {}),
+                    },
+                ]),
+                _ => Ok(vec![Err(ContentError::UnknownCommand {})]),
             }
         }
         '%' => {
-            match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                'M' => match parse_units(line, gerber_doc) {
-                    Ok(units) => {
-                        gerber_doc.units = Some(units);
-                        Ok(Command::ExtendedCode(ExtendedCode::Unit(units)))
-                    }
-                    Err(e) => Err(e),
-                },
-                'F' => match parse_format_spec(line, gerber_doc) {
-                    Ok(format_spec) => {
-                        gerber_doc.format_specification = Some(format_spec);
-                        Ok(ExtendedCode::CoordinateFormat(format_spec).into())
-                    }
-                    Err(e) => Err(e),
-                },
-                'A' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                    'D' => {
-                        // AD
-                        match parse_aperture_defs(line, gerber_doc) {
-                            Ok((code, ap)) => {
-                                gerber_doc.apertures.insert(code, ap.clone());
-                                // Safety: While insert can 'fail' (misbehave) if the key
-                                // already exists,
-                                // `parse_aperture_defs` explicitly checks for this
-                                Ok(ExtendedCode::ApertureDefinition(
-                                    gerber_types::ApertureDefinition::new(code, ap),
-                                )
-                                .into())
+            Ok(vec![
+                match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                    'M' => match parse_units(line, gerber_doc) {
+                        Ok(units) => {
+                            gerber_doc.units = Some(units);
+                            Ok(Command::ExtendedCode(ExtendedCode::Unit(units)))
+                        }
+                        Err(e) => Err(e),
+                    },
+                    'F' => match parse_format_spec(line, gerber_doc) {
+                        Ok(format_spec) => {
+                            gerber_doc.format_specification = Some(format_spec);
+                            Ok(ExtendedCode::CoordinateFormat(format_spec).into())
+                        }
+                        Err(e) => Err(e),
+                    },
+                    'A' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        'D' => {
+                            // AD
+                            match parse_aperture_defs(line, gerber_doc) {
+                                Ok((code, ap)) => {
+                                    gerber_doc.apertures.insert(code, ap.clone());
+                                    // Safety: While insert can 'fail' (misbehave) if the key
+                                    // already exists,
+                                    // `parse_aperture_defs` explicitly checks for this
+                                    Ok(ExtendedCode::ApertureDefinition(
+                                        gerber_types::ApertureDefinition::new(code, ap),
+                                    )
+                                    .into())
+                                }
+                                Err(err) => Err(err),
                             }
+                        }
+                        'M' => match parse_aperture_macro_definition(line, parser_context) {
+                            Ok(macro_def) => Ok(Command::ExtendedCode(
+                                ExtendedCode::ApertureMacro(macro_def),
+                            )),
                             Err(err) => Err(err),
-                        }
-                    }
-                    'M' => match parse_aperture_macro_definition(line, parser_context) {
-                        Ok(macro_def) => Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(
-                            macro_def,
-                        ))),
-                        Err(err) => Err(err),
-                    }, // AM
-                    _ => Err(ContentError::UnknownCommand {}),
-                },
-                'L' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                    'P' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                        // LP
-                        'D' => Ok(ExtendedCode::LoadPolarity(Polarity::Dark).into()), // LPD
-                        'C' => Ok(ExtendedCode::LoadPolarity(Polarity::Clear).into()), // LPC
+                        }, // AM
                         _ => Err(ContentError::UnknownCommand {}),
                     },
-                    'M' => Err(ContentError::UnsupportedCommand {}), // LM
-                    'R' => Err(ContentError::UnsupportedCommand {}), // LR
-                    'S' => Err(ContentError::UnsupportedCommand {}), // LS
-                    _ => Err(ContentError::UnknownCommand {}),
-                },
-                'T' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                    'F' => parse_file_attribute(linechars)
-                        .map(|file_attr| ExtendedCode::FileAttribute(file_attr).into()),
-                    'A' => parse_aperture_attribute(linechars),
-                    'D' => parse_delete_attribute(linechars),
-                    _ => Err(ContentError::UnknownCommand {}),
-                },
-                'S' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                    'R' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                        'X' => parse_step_repeat_open(line),
-                        // a statement %SR*% closes a step repeat command, which has no parameters
-                        '*' => Ok(ExtendedCode::StepAndRepeat(StepAndRepeat::Close).into()),
+                    'L' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        'P' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                            // LP
+                            'D' => Ok(ExtendedCode::LoadPolarity(Polarity::Dark).into()), // LPD
+                            'C' => Ok(ExtendedCode::LoadPolarity(Polarity::Clear).into()), // LPC
+                            _ => Err(ContentError::UnknownCommand {}),
+                        },
+                        'M' => Err(ContentError::UnsupportedCommand {}), // LM
+                        'R' => Err(ContentError::UnsupportedCommand {}), // LR
+                        'S' => Err(ContentError::UnsupportedCommand {}), // LS
                         _ => Err(ContentError::UnknownCommand {}),
                     },
-                    _ => Err(ContentError::UnknownCommand {}),
-                },
-                'I' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                    'N' => {
-                        // Image Name, 8.1.3. Deprecated, but still used by fusion 360.
-                        match parse_image_name(line, gerber_doc) {
-                            Ok(name) => {
-                                gerber_doc.image_name = Some(name.clone());
-                                // Because `gerber-types` does not support image name,
-                                // we save it in the doc and list it as a comment.
-                                // The gerber spec also says it can be treated as a comment.
-                                Ok(FunctionCode::GCode(GCode::Comment(format!(
-                                    "Image Name: {name}"
-                                )))
-                                .into())
+                    'T' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        'F' => parse_file_attribute(linechars.clone())
+                            .map(|file_attr| ExtendedCode::FileAttribute(file_attr).into()),
+                        'A' => parse_aperture_attribute(linechars.clone()),
+                        'D' => parse_delete_attribute(linechars.clone()),
+                        _ => Err(ContentError::UnknownCommand {}),
+                    },
+                    'S' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        'R' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                            'X' => parse_step_repeat_open(line),
+                            // a statement %SR*% closes a step repeat command, which has no parameters
+                            '*' => Ok(ExtendedCode::StepAndRepeat(StepAndRepeat::Close).into()),
+                            _ => Err(ContentError::UnknownCommand {}),
+                        },
+                        _ => Err(ContentError::UnknownCommand {}),
+                    },
+                    'I' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        'N' => {
+                            // Image Name, 8.1.3. Deprecated, but still used by fusion 360.
+                            match parse_image_name(line, gerber_doc) {
+                                Ok(name) => {
+                                    gerber_doc.image_name = Some(name.clone());
+                                    // Because `gerber-types` does not support image name,
+                                    // we save it in the doc and list it as a comment.
+                                    // The gerber spec also says it can be treated as a comment.
+                                    Ok(FunctionCode::GCode(GCode::Comment(format!(
+                                        "Image Name: {name}"
+                                    )))
+                                    .into())
+                                }
+                                Err(e) => Err(e),
                             }
-                            Err(e) => Err(e),
                         }
-                    }
-                    'P' => Err(ContentError::UnsupportedCommand {}),
-                    // Image Polarity, basically useless, but used by fusion
+                        'P' => Err(ContentError::UnsupportedCommand {}),
+                        // Image Polarity, basically useless, but used by fusion
+                        _ => Err(ContentError::UnknownCommand {}),
+                    },
                     _ => Err(ContentError::UnknownCommand {}),
                 },
-                _ => Err(ContentError::UnknownCommand {}),
-            }
+            ])
         }
-        'X' | 'Y' => {
-            linechars.next_back();
-            match linechars
-                .next_back()
-                .ok_or(ContentError::UnknownCommand {})?
-            {
-                '1' => parse_interpolation(line, gerber_doc), // D01
-                '2' => parse_move_or_flash(line, gerber_doc, false), // D02
-                '3' => parse_move_or_flash(line, gerber_doc, true), // D03
-                _ => Err(ContentError::UnknownCommand {}),
-            }
-        }
+        'X' | 'Y' => Ok(vec![parse_interpolate_move_or_flash(
+            line,
+            gerber_doc,
+            &mut linechars,
+        )]),
         'D' => {
             // select aperture D<num>* (where num >= 10) or command where num < 10
             linechars.next_back(); // remove the trailing '*'
-            parse_aperture_selection_or_command(line, linechars, gerber_doc)
+            Ok(vec![parse_aperture_selection_or_command(
+                line,
+                linechars.clone(),
+                gerber_doc,
+            )])
         }
-        'M' => Ok(FunctionCode::MCode(MCode::EndOfFile).into()),
+        'M' => Ok(vec![Ok(FunctionCode::MCode(MCode::EndOfFile).into())]),
+        _ => Ok(vec![Err(ContentError::UnknownCommand {})]),
+    }
+}
+
+fn parse_interpolate_move_or_flash(
+    line: &str,
+    gerber_doc: &mut GerberDoc,
+    linechars: &mut Chars,
+) -> Result<Command, ContentError> {
+    linechars.next_back();
+    match linechars
+        .next_back()
+        .ok_or(ContentError::UnknownCommand {})?
+    {
+        '1' => parse_interpolation(line, gerber_doc), // D01
+        '2' => parse_move_or_flash(line, gerber_doc, false), // D02
+        '3' => parse_move_or_flash(line, gerber_doc, true), // D03
         _ => Err(ContentError::UnknownCommand {}),
     }
 }

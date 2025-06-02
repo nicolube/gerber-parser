@@ -5,10 +5,11 @@ use gerber_parser::{
 };
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureDefinition, ApertureFunction, ApertureMacro, Circle,
-    CirclePrimitive, Command, CoordinateFormat, DCode, ExtendedCode, FileAttribute, FileFunction,
-    FilePolarity, FunctionCode, GCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger,
-    Operation, OutlinePrimitive, Part, Polygon, PolygonPrimitive, Rectangular, StepAndRepeat, Unit,
-    VariableDefinition, VectorLinePrimitive,
+    CirclePrimitive, Command, CoordinateFormat, CoordinateOffset, Coordinates,
+    DCode, ExtendedCode, FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode,
+    InterpolationMode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Operation,
+    OutlinePrimitive, Part, Polygon, PolygonPrimitive, QuadrantMode, Rectangular, StepAndRepeat,
+    Unit, VariableDefinition, VectorLinePrimitive,
 };
 
 mod utils;
@@ -1458,6 +1459,150 @@ fn test_jlccam_macro_1_with_empty_line() {
             ))),
             Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(
                 ApertureDefinition::new(26, Aperture::Macro("A5ts".to_string(), None))
+            ))),
+        ]
+    );
+}
+
+#[test]
+fn diptrace_rounded_rectangle_pcb_outline() {
+    // NOTE Diptrace 4.3.0.6 still uses deprecated syntax which combines a G03 and a D01, Deprecated since 2015.06.
+    //      See 2024.06 Gerber spec Section 8.3.1 "Combining G01/G02/G03 and D01 in a single command".
+
+    // given
+    let reader = utils::gerber_to_reader(
+        r#"
+        %TF.GenerationSoftware,Novarm,DipTrace,4.3.0.6*%
+        %TF.CreationDate,2025-06-02T14:41:54+00:00*%
+        %FSLAX35Y35*%
+        %MOMM*%
+        %TF.FileFunction,Profile*%
+        %TF.Part,Single*%
+        %ADD12C,0.14*%
+        G75*
+        G01*
+        %LPD*%
+        X500000Y1500000D2*
+        D12*
+        G03X0Y1000000I0J-500000D01*
+        G01*
+        Y500000D1*
+        G03X500000Y0I500000J0D01*
+        G01*
+        X1500000D1*
+        G03X2000000Y500000I0J500000D01*
+        G01*
+        Y1000000D1*
+        G03X1500000Y1500000I-500000J0D01*
+        G01*
+        X500000D1*
+        M02*
+    "#,
+    );
+
+    // when
+    let commands = parse(reader).unwrap().commands;
+    dump_commands(&commands);
+
+    // then
+    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::GCode(_))) | Ok(Command::FunctionCode(FunctionCode::DCode(_))))
+        ).collect()};
+
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
+
+    let format = CoordinateFormat {
+        integer: 3,
+        decimal: 5,
+    };
+
+    assert_eq_commands!(
+        filtered_commands,
+        vec![
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::QuadrantMode(QuadrantMode::Multi)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::Linear)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Move(Coordinates::new(5, 15, format)))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::SelectAperture(12)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::CounterclockwiseCircular)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    Coordinates::new(0, 10, format),
+                    Some(CoordinateOffset::new(0, -5, format)),
+                ))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::Linear)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    Coordinates::new::<Option<i32>, Option<i32>>(None, Some(5), format),
+                    None,
+                ))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::CounterclockwiseCircular)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    Coordinates::new(5, 0, format),
+                    Some(CoordinateOffset::new(5, 0, format)),
+                ))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::Linear)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    Coordinates::new::<Option<i32>, Option<i32>>(Some(15), None, format),
+                    None,
+                ))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::CounterclockwiseCircular)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    Coordinates::new(20, 5, format),
+                    Some(CoordinateOffset::new(0, 5, format)),
+                ))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::Linear)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    Coordinates::new::<Option<i32>, Option<i32>>(None, Some(10), format),
+                    None,
+                ))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::CounterclockwiseCircular)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    Coordinates::new(15, 15, format),
+                    Some(CoordinateOffset::new(-5, 0, format)),
+                ))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(
+                GCode::InterpolationMode(InterpolationMode::Linear)
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    Coordinates::new::<Option<i32>, Option<i32>>(Some(5), None, format),
+                    None,
+                ))
             ))),
         ]
     );
