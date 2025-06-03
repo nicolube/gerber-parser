@@ -21,6 +21,7 @@ gerber-types = { git = "https://github.com/makerpnp/gerber-types-rs.git", rev = 
 
 # errors
 thiserror = "2.0.12"
+anyhow = "1.0.98"
 
 # regular expressions
 regex = "1.11.1"

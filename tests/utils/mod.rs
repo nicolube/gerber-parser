@@ -17,3 +17,15 @@ pub fn gerber_doc_to_str(gerber_doc: GerberDoc) -> String {
     gerber_doc.into_commands().serialize(&mut filevec).unwrap();
     str::from_utf8(&filevec).unwrap().to_string()
 }
+
+#[must_use]
+#[allow(dead_code)]
+pub fn gerber_doc_as_str(gerber_doc: &GerberDoc) -> String {
+    let mut filevec = Vec::<u8>::new();
+    // we use the serialisation methods of the gerber-types crate
+    gerber_doc.as_commands()
+        .iter().for_each(|command|{
+        command.serialize(&mut filevec).unwrap();
+    });
+    str::from_utf8(&filevec).unwrap().to_string()
+}
