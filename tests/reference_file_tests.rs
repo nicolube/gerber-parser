@@ -21,7 +21,12 @@ fn two_square_boxes_to_rust_and_back() {
     let reader = utils::gerber_to_reader(gbr_string);
     let doc = parse(reader).unwrap();
 
-    assert_eq!(utils::gerber_doc_as_str(&doc), gbr_string, "unexpected differences, commands: {:?}", doc.commands)
+    assert_eq!(
+        utils::gerber_doc_as_str(&doc),
+        gbr_string,
+        "unexpected differences, commands: {:?}",
+        doc.commands
+    )
 }
 
 #[test]
@@ -39,7 +44,12 @@ fn polarities_and_apertures_to_rust_and_back() {
     let reader = utils::gerber_to_reader(gbr_string);
     let doc = parse(reader).unwrap();
 
-    assert_eq!(utils::gerber_doc_as_str(&doc), gbr_string, "unexpected differences, commands: {:?}", doc.commands)
+    assert_eq!(
+        utils::gerber_doc_as_str(&doc),
+        gbr_string,
+        "unexpected differences, commands: {:?}",
+        doc.commands
+    )
 }
 
 #[test]
@@ -58,5 +68,10 @@ fn a_drill_file_to_rust_and_back() {
     let reader = utils::gerber_to_reader(gbr_string);
     let doc = parse(reader).unwrap();
 
-    assert_eq!(gbr_string, utils::gerber_doc_as_str(&doc), "unexpected differences, commands: {:?}", doc.commands)
+    assert_eq!(
+        gbr_string,
+        utils::gerber_doc_as_str(&doc),
+        "unexpected differences, commands: {:?}",
+        doc.commands
+    )
 }
