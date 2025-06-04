@@ -52,7 +52,6 @@ For a list of other projects that use this crate you can check the github 'depen
 
 https://github.com/MakerPnP/gerber-parser/network/dependents
 
-
 ## Authors
 
 Nemo Andrea (Original author)
@@ -61,9 +60,6 @@ Dominic Clifton (Current maintainer)
 ## License
 
 [GNU AFFERO GENERAL PUBLIC LICENSE](https://www.gnu.org/licenses/agpl-3.0.en.html)
-
-## History
-
 
 <!-- Badges -->
 
