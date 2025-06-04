@@ -3,13 +3,15 @@
 [![Crates.io][crates-io-badge]][crates-io]
 [![MakerPnP Discord][discord-badge]][discord]
 
-- [Docs (released)](https://docs.rs/gerber-types/)
+- [Docs (released)](https://docs.rs/gerber-parser/)
 
 This crate implements a `gerber` parser written in rust to be used with the `gerber-types-rs` crate.
 
 ## Example
 
-See the `examples` folder of the repository.
+See the `examples` folder of the repository, run it as follows:
+
+    $ cargo run --example example1
 
 ## Spec compliance
 
@@ -29,6 +31,28 @@ Partial:
 
 * The `TF` and `TA` commands only support a limited range of arguments; custom attributes will result in an error
 
+## Related crates
+
+### Gerber Types
+
+A rust crate for definition of gerber types in test.
+
+Crates.io: https://crates.io/crates/gerber-types
+Github: https://github.com/MakerPnP/gerber-types
+
+### Gerber Viewer
+
+A rust crate for rendering gerber layers, also uses this crate as a dependency:
+
+Github: https://github.com/MakerPnP/gerber-viewer
+
+## Related projects
+
+For a list of other projects that use this crate you can check the github 'dependents' page.
+
+https://github.com/MakerPnP/gerber-parser/network/dependents
+
+
 ## Authors
 
 Nemo Andrea (Original author)
@@ -45,7 +69,7 @@ Dominic Clifton (Current maintainer)
 
 [build-status]: https://github.com/makerpnp/gerber-parser/actions/workflows/ci.yml
 [build-status-badge]: https://github.com/makerpnp/gerber-parser/workflows/CI/badge.svg
-[crates-io]: https://crates.io/crates/gerber_parser
-[crates-io-badge]: https://img.shields.io/crates/v/gerber_parser.svg
+[crates-io]: https://crates.io/crates/gerber-parser
+[crates-io-badge]: https://img.shields.io/crates/v/gerber-parser.svg
 [discord]: https://discord.gg/ffwj5rKZuf
 [discord-badge]: https://img.shields.io/discord/1255867192503832688?label=MakerPnP%20discord&color=%2332c955
