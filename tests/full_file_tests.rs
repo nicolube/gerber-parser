@@ -1,4 +1,4 @@
-use gerber_parser::parser::parse_gerber;
+use gerber_parser::parse;
 mod utils;
 
 /// These tests are similar to those in reference_file_tests.rs, but the files below are
@@ -6,8 +6,7 @@ mod utils;
 
 #[test]
 fn dicechip_outline_to_rust_and_back() {
-    let gbr_string = 
-"%FSLAX23Y23*%
+    let gbr_string = "%FSLAX23Y23*%
 %MOMM*%
 %ADD801C,0.018*%
 %ADD802C,0.01*%
@@ -45,10 +44,15 @@ X0Y-720D03*
 X0Y720D03*
 M02*
 ";
-    let reader = utils::gerber_to_reader(&gbr_string);
-    
-    let doc = parse_gerber(reader);
-    doc.get_errors().iter().for_each(|x| println!("Error: {}", x));
+    let reader = utils::gerber_to_reader(gbr_string);
+
+    let result = parse(reader);
+    assert!(result.is_ok());
+
+    let doc = result.unwrap();
+    doc.get_errors()
+        .iter()
+        .for_each(|x| println!("Error: {}", x));
 
     assert_eq!(gbr_string, utils::gerber_doc_to_str(doc))
 }

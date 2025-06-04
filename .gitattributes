@@ -1,0 +1,3 @@
+[attr]gerber text eol=lf whitespace=trailing-space
+
+*.gbr gerber

@@ -1,31 +1,27 @@
-# Gerber-parser
+# Rust Gerber Parser
+[![Build status][build-status-badge]][build-status]
+[![Crates.io][crates-io-badge]][crates-io]
+[![MakerPnP Discord][discord-badge]][discord]
 
-A simple `gerber` parser written in rust to be used with the `gerber-types` crate. 
+- [Docs (released)](https://docs.rs/gerber-types/)
 
-```rust
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use gerber_parser::parser::parse_gerber;
+This crate implements a `gerber` parser written in rust to be used with the `gerber-types-rs` crate.
 
-// open a .gbr file from system
-let file = File::open(path).unwrap();
-let reader = BufReader::new(file);
+## Example
 
-// Now we parse the file to a GerberDoc 
-let gerber_doc: GerberDoc = parse_gerber(reader);
+See the `examples` folder of the repository.
 
-// it is possible to convert to an 'atomic' representation purely 
-// in terms of Vec<Command> of the gerber-types crate
-let commands:Vec<Command> = gerber_doc.to_commands();
-```
+## Spec compliance
 
-### Current State
+The gerber specification 2024.05 is the latest version of the Gerber file format that is used for reference.
+
+The original author used f360, the initial implementation was written to support files it generated.
+Recently support has been added for the files that DipTrace, KiCad, etc.
 
 ⚠️ Note: this package is still in development and does not cover the full Gerber spec
 
-Currently missing
+Currently missing:
 
-* All `AM` commands
 * `LM`, `LR`, `LS`, `IP` commands (note: these are deprecated in the spec)
 * `AB` commands
 
@@ -33,7 +29,23 @@ Partial:
 
 * The `TF` and `TA` commands only support a limited range of arguments; custom attributes will result in an error
 
-### General to-do
+## Authors
 
-* Do proper coordinate check (compatibility with `format specification`)
-* Test with output from more programs (I use f360 and that seems to work)
+Nemo Andrea (Original author)
+Dominic Clifton (Current maintainer)
+
+## License
+
+[GNU AFFERO GENERAL PUBLIC LICENSE](https://www.gnu.org/licenses/agpl-3.0.en.html)
+
+## History
+
+
+<!-- Badges -->
+
+[build-status]: https://github.com/makerpnp/gerber-parser/actions/workflows/ci.yml
+[build-status-badge]: https://github.com/makerpnp/gerber-parser/workflows/CI/badge.svg
+[crates-io]: https://crates.io/crates/gerber_parser
+[crates-io-badge]: https://img.shields.io/crates/v/gerber_parser.svg
+[discord]: https://discord.gg/ffwj5rKZuf
+[discord-badge]: https://img.shields.io/discord/1255867192503832688?label=MakerPnP%20discord&color=%2332c955
