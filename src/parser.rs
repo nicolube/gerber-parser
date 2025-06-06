@@ -34,11 +34,11 @@ static RE_IMAGE_NAME: Lazy<Regex> = lazy_regex!(r"%IN(.*)\*%");
 static RE_STEP_REPEAT: Lazy<Regex> =
     lazy_regex!(r"%SRX([0-9]+)Y([0-9]+)I(\d+\.?\d*)J(\d+\.?\d*)\*%");
 static RE_MACRO_UNSIGNED_INTEGER: Lazy<Regex> =
-    lazy_regex!(r"(?P<value>[0-9]+$)|(?P<variable>^\$[0-9]+$)|(?P<expression>.*)");
+    lazy_regex!(r"^(?:(?P<value>[0-9]+)|(?P<variable>\$[0-9]+)|(?P<expression>.*))$");
 static RE_MACRO_BOOLEAN: Lazy<Regex> =
-    lazy_regex!(r"(?P<value>^0|1$)|(?P<variable>^\$[0-9]+$)|(?P<expression>.*)");
+    lazy_regex!(r"^(?:(?P<value>0|1$)|(?P<variable>\$[0-9]+)|(?P<expression>.*))$");
 static RE_MACRO_DECIMAL: Lazy<Regex> = lazy_regex!(
-    r"(?P<value>^[+-]?[0-9]+(?:\.[0-9]*)?$)|(?P<variable>^\$[0-9]+$)|(?P<expression>.*)"
+    r"^(?:(?P<value>[+-]?[0-9]+(?:\.[0-9]*)?)|(?P<variable>\$[0-9]+)|(?P<expression>.+))$"
 );
 static RE_MACRO_VARIABLE: Lazy<Regex> =
     lazy_regex!(r"\$(?P<number>\d+)\s*=\s*(?P<expression>[^*]+)\s*");
