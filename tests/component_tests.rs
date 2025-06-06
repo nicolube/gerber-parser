@@ -1649,3 +1649,140 @@ fn diptrace_rounded_rectangle_pcb_outline() {
         ]
     );
 }
+
+/// There was an issue with the parser creating MacroDecimal::Value and not MacroDecimal::Expression for expressions
+/// that start with a value
+#[test]
+fn vector_font_macro_1() {
+    // given
+    let reader = utils::gerber_to_reader(
+        r#"
+        %FSLAX46Y46*%
+        G04 Gerber Fmt 4.6, Leading zero omitted, Abs format (unit mm)*
+        %MOMM*%
+        %LPD*%
+        G01*
+        
+        
+        %AMVECTORFONT_77*
+        0 ASCII 'M' 77 (0x4D)
+        0 $1 = width
+        0 $2 = scale
+        0 $3 = rotation
+        20,1,$1,-10x$2,-10x$2,-10x$2,10x$2,$3*
+        20,1,$1,$2x-10,$2x10,$2x0,$2x-10,$3*
+        20,1,$1,0x$2,-10x$2,10x$2,10x$2,$3*
+        20,1,$1,$2x10,$2x-10,$2x10,$2x10,$3*
+        %
+        %ADD177VECTORFONT_77,0.1X0.49X0*%
+        D177*
+        X-20000000Y0D03*
+        X00000000Y0D03*
+        X20000000Y0D03*
+    "#,
+    );
+
+    // NOTE some of the macro uses expressions that start with numbers, some start with variables, some values are
+    //      positive and some negative.
+    //      lines 1 and 3 use <value * variable>, lines 2 and 4 use <variable * value>
+
+    let expected_macro: ApertureMacro = ApertureMacro {
+        name: "VECTORFONT_77".to_string(),
+        content: vec![
+            MacroContent::Comment("ASCII 'M' 77 (0x4D)".to_string()),
+            MacroContent::Comment("$1 = width".to_string()),
+            MacroContent::Comment("$2 = scale".to_string()),
+            MacroContent::Comment("$3 = rotation".to_string()),
+            // 20,1,$1,-10x$2,-10x$2,-10x$2,10x$2,$3*
+            MacroContent::VectorLine(VectorLinePrimitive {
+                exposure: MacroBoolean::Value(true),
+                width: MacroDecimal::Variable(1),
+                start: (
+                    MacroDecimal::Expression("-10x$2".to_string()),
+                    MacroDecimal::Expression("-10x$2".to_string()),
+                ),
+                end: (
+                    MacroDecimal::Expression("-10x$2".to_string()),
+                    MacroDecimal::Expression("10x$2".to_string()),
+                ),
+                angle: MacroDecimal::Variable(3),
+            }),
+            // 20,1,$1,$2x-10,$2x10,$2x0,$2x-10,$3*
+            MacroContent::VectorLine(VectorLinePrimitive {
+                exposure: MacroBoolean::Value(true),
+                width: MacroDecimal::Variable(1),
+                start: (
+                    MacroDecimal::Expression("$2x-10".to_string()),
+                    MacroDecimal::Expression("$2x10".to_string()),
+                ),
+                end: (
+                    MacroDecimal::Expression("$2x0".to_string()),
+                    MacroDecimal::Expression("$2x-10".to_string()),
+                ),
+                angle: MacroDecimal::Variable(3),
+            }),
+            // 20,1,$1,0x$2,-10x$2,10x$2,10x$2,$3*
+            MacroContent::VectorLine(VectorLinePrimitive {
+                exposure: MacroBoolean::Value(true),
+                width: MacroDecimal::Variable(1),
+                start: (
+                    MacroDecimal::Expression("0x$2".to_string()),
+                    MacroDecimal::Expression("-10x$2".to_string()),
+                ),
+                end: (
+                    MacroDecimal::Expression("10x$2".to_string()),
+                    MacroDecimal::Expression("10x$2".to_string()),
+                ),
+                angle: MacroDecimal::Variable(3),
+            }),
+            // 20,1,$1,$2x10,$2x-10,$2x10,$2x10,$3*
+            MacroContent::VectorLine(VectorLinePrimitive {
+                exposure: MacroBoolean::Value(true),
+                width: MacroDecimal::Variable(1),
+                start: (
+                    MacroDecimal::Expression("$2x10".to_string()),
+                    MacroDecimal::Expression("$2x-10".to_string()),
+                ),
+                end: (
+                    MacroDecimal::Expression("$2x10".to_string()),
+                    MacroDecimal::Expression("$2x10".to_string()),
+                ),
+                angle: MacroDecimal::Variable(3),
+            }),
+        ],
+    };
+
+    // when
+    let commands = parse(reader).unwrap().commands;
+    dump_commands(&commands);
+
+    // then
+    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))))
+        ).collect()};
+
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
+
+    assert_eq_commands!(
+        filtered_commands,
+        vec![
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(
+                expected_macro
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(
+                ApertureDefinition::new(
+                    177,
+                    Aperture::Macro(
+                        "VECTORFONT_77".to_string(),
+                        Some(vec![
+                            MacroDecimal::Value(0.1),
+                            MacroDecimal::Value(0.49),
+                            MacroDecimal::Value(0.0),
+                        ])
+                    )
+                )
+            ))),
+        ]
+    );
+}
