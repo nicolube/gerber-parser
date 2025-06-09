@@ -627,20 +627,14 @@ fn parse_aperture_macro_definition<T: Read>(
                     // Parse rotation angle from the last line
                     let angle = params
                         .pop()
-                        .map(|angle_str| {
-                            angle_str.trim().parse::<f64>().map_err(|_| {
-                                ContentError::InvalidMacroDefinition(
-                                    "Invalid angle parameter".to_string(),
-                                )
-                            })
-                        })
+                        .map(|angle_str| parse_macro_decimal(&angle_str))
                         .transpose()?
-                        .unwrap_or(0.0);
+                        .unwrap_or(MacroDecimal::Value(0.0));
 
                     let outline = OutlinePrimitive {
                         exposure,
                         points,
-                        angle: MacroDecimal::Value(angle),
+                        angle,
                     };
 
                     content.push(MacroContent::Outline(outline));
