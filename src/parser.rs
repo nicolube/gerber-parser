@@ -11,7 +11,7 @@ use crate::gerber_types::{
     Rectangular, SmdPadType, StepAndRepeat, Unit, VectorLinePrimitive,
 };
 use crate::ParseError;
-use gerber_types::VariableDefinition;
+use gerber_types::{ApertureBlock, DrillRouteType, PlatedDrill, VariableDefinition};
 use lazy_regex::*;
 use regex::Regex;
 use std::str::Chars;
@@ -27,6 +27,7 @@ static RE_FORMAT_SPEC: Lazy<Regex> = lazy_regex!(r"%FSLAX(.*)Y(.*)\*%");
 /// https://regex101.com/r/YNnrmK/1
 static RE_APERTURE: Lazy<Regex> =
     lazy_regex!(r"%ADD([0-9]+)([._$a-zA-Z][._$a-zA-Z0-9]{0,126})(?:,\s?(.*))?\*%");
+static RE_APERTURE_BLOCK: Lazy<Regex> = lazy_regex!(r"%AB(D(?P<code>[0-9]+))?\*%");
 static RE_INTERPOLATION: Lazy<Regex> =
     lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?I?(-?[0-9]+)?J?(-?[0-9]+)?D(0)?1\*");
 static RE_MOVE_OR_FLASH: Lazy<Regex> = lazy_regex!(r"X?(-?[0-9]+)?Y?(-?[0-9]+)?D(0)?[2-3]*");
@@ -254,8 +255,19 @@ fn parse_line<T: Read>(
                         Err(e) => Err(e),
                     },
                     'A' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        // AB
+                        'B' => match parse_aperture_block(line) {
+                            Ok(maybe_code) => {
+                                let aperture_block = match maybe_code {
+                                    None => ApertureBlock::Close,
+                                    Some(code) => ApertureBlock::Open { code },
+                                };
+                                Ok(ExtendedCode::ApertureBlock(aperture_block).into())
+                            }
+                            Err(err) => Err(err),
+                        },
+                        // AD
                         'D' => {
-                            // AD
                             match parse_aperture_defs(line, gerber_doc) {
                                 Ok((code, ap)) => {
                                     gerber_doc.apertures.insert(code, ap.clone());
@@ -270,24 +282,30 @@ fn parse_line<T: Read>(
                                 Err(err) => Err(err),
                             }
                         }
+                        // AM
                         'M' => match parse_aperture_macro_definition(line, parser_context) {
                             Ok(macro_def) => Ok(Command::ExtendedCode(
                                 ExtendedCode::ApertureMacro(macro_def),
                             )),
                             Err(err) => Err(err),
-                        }, // AM
+                        },
                         _ => Err(ContentError::UnknownCommand {}),
                     },
                     'L' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        // LP
                         'P' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                            // LP
-                            'D' => Ok(ExtendedCode::LoadPolarity(Polarity::Dark).into()), // LPD
-                            'C' => Ok(ExtendedCode::LoadPolarity(Polarity::Clear).into()), // LPC
+                            // LPD
+                            'D' => Ok(ExtendedCode::LoadPolarity(Polarity::Dark).into()),
+                            // LPC
+                            'C' => Ok(ExtendedCode::LoadPolarity(Polarity::Clear).into()),
                             _ => Err(ContentError::UnknownCommand {}),
                         },
-                        'M' => Err(ContentError::UnsupportedCommand {}), // LM
-                        'R' => Err(ContentError::UnsupportedCommand {}), // LR
-                        'S' => Err(ContentError::UnsupportedCommand {}), // LS
+                        // LM
+                        'M' => Err(ContentError::UnsupportedCommand {}),
+                        // LR
+                        'R' => Err(ContentError::UnsupportedCommand {}),
+                        // LS
+                        'S' => Err(ContentError::UnsupportedCommand {}),
                         _ => Err(ContentError::UnknownCommand {}),
                     },
                     'T' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
@@ -888,6 +906,19 @@ fn parse_char(char_in: char) -> Result<u8, ContentError> {
     })? as u8)
 }
 
+fn parse_aperture_block(line: &str) -> Result<Option<i32>, ContentError> {
+    let Some(captures) = RE_APERTURE_BLOCK.captures(line) else {
+        return Err(ContentError::NoRegexMatch {
+            regex: RE_APERTURE_BLOCK.clone(),
+        });
+    };
+
+    captures
+        .name("code")
+        .map(|code| parse_aperture_code(code.as_str()))
+        .transpose()
+}
+
 // parse a Gerber aperture definition e.g. '%ADD44R, 2.0X3.0*%')
 fn parse_aperture_defs(
     line: &str,
@@ -1277,7 +1308,7 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
         // we must have at least 1 field
         //log::debug!("TF args are: {:?}", attr_args);
         match attr_args[0] {
-            "Part" => match attr_args[1] {
+            ".Part" => match attr_args[1] {
                 "Single" => Ok(FileAttribute::Part(Part::Single)),
                 "Array" => Ok(FileAttribute::Part(Part::Array)),
                 "FabricationPanel" => Ok(FileAttribute::Part(Part::FabricationPanel)),
@@ -1287,18 +1318,51 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
                     part_type: attr_args[1].to_string(),
                 }),
             },
-            // TODO do FileFunction properly, but needs changes in gerber-types
-            "FileFunction" => Ok(FileAttribute::FileFunction(FileFunction::Other(
-                attr_args[1].to_string(),
-            ))),
-            "FilePolarity" => match attr_args[1] {
+            ".FileFunction" => match attr_args[1] {
+                "Plated" => Ok(FileAttribute::FileFunction(FileFunction::Plated {
+                    from_layer: attr_args[2]
+                        .parse::<i32>()
+                        .map_err(|e| ContentError::ParseIntegerError { cause: e })?,
+                    to_layer: attr_args[3]
+                        .parse::<i32>()
+                        .map_err(|e| ContentError::ParseIntegerError { cause: e })?,
+                    drill: {
+                        match attr_args[4].to_lowercase().as_str() {
+                            "pth" => Ok(PlatedDrill::PlatedThroughHole),
+                            "buried" => Ok(PlatedDrill::Buried),
+                            "blind" => Ok(PlatedDrill::Blind),
+                            _ => Err(ContentError::InvalidParameter {
+                                parameter: attr_args[4].to_string(),
+                            }),
+                        }?
+                    },
+                    label: attr_args
+                        .get(5)
+                        .map(|arg| match arg.to_lowercase().as_str() {
+                            "drill" => Ok(DrillRouteType::Drill),
+                            "rout" => Ok(DrillRouteType::Drill),
+                            "mixed" => Ok(DrillRouteType::Mixed),
+                            _ => Err(ContentError::InvalidParameter {
+                                parameter: arg.to_string(),
+                            }),
+                        })
+                        .transpose()?,
+                })),
+                "Other" => Ok(FileAttribute::FileFunction(FileFunction::Other(
+                    attr_args[2].to_string(),
+                ))),
+                _ => Err(ContentError::UnsupportedFileAttribute {
+                    attribute_name: attr_args[1].to_string(),
+                }),
+            },
+            ".FilePolarity" => match attr_args[1] {
                 "Positive" => Ok(FileAttribute::FilePolarity(FilePolarity::Positive)),
                 "Negative" => Ok(FileAttribute::FilePolarity(FilePolarity::Negative)),
                 _ => Err(ContentError::UnsupportedPolarityType {
                     polarity_type: attr_args[1].to_string(),
                 }),
             },
-            "Md5" => Ok(FileAttribute::Md5(attr_args[1].to_string())),
+            ".Md5" => Ok(FileAttribute::Md5(attr_args[1].to_string())),
             _ => Err(ContentError::UnsupportedFileAttribute {
                 attribute_name: attr_args[0].to_string(),
             }),
@@ -1326,24 +1390,29 @@ fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
     if attr_args.len() >= 2 {
         // we must have at least 1 field
         match attr_args[0] {
-            "AperFunction" => {
+            ".AperFunction" => {
                 Ok(
                     ExtendedCode::ApertureAttribute(ApertureAttribute::ApertureFunction(
                         match attr_args[1] {
-                            "ViaDrill" => ApertureFunction::ViaDrill,
+                            "ViaDrill" => {
+                                // TODO add support the IPC4761ViaProtection parameter
+                                ApertureFunction::ViaDrill(None)
+                            }
                             "BackDrill" => ApertureFunction::BackDrill,
                             "ComponentDrill" => {
+                                // TODO parse this
                                 ApertureFunction::ComponentDrill { press_fit: None }
-                            } // TODO parse this
+                            }
                             "CastellatedDrill" => ApertureFunction::CastellatedDrill,
                             "MechanicalDrill" => {
+                                // TODO parse this
                                 ApertureFunction::MechanicalDrill { function: None }
-                            } // TODO parse this
+                            }
                             "Slot" => ApertureFunction::Slot,
                             "CutOut" => ApertureFunction::CutOut,
                             "Cavity" => ApertureFunction::Cavity,
                             "OtherDrill" => ApertureFunction::OtherDrill(attr_args[2].to_string()),
-                            "ComponentPad " => ApertureFunction::ComponentPad { press_fit: None }, // TODO parse this
+                            "ComponentPad " => ApertureFunction::ComponentPad,
                             "SmdPad" => match attr_args[2] {
                                 "CopperDefined" => {
                                     ApertureFunction::SmdPad(SmdPadType::CopperDefined)
@@ -1407,7 +1476,7 @@ fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
                     .into(),
                 )
             }
-            "DrillTolerance" => Ok(ExtendedCode::ApertureAttribute(
+            ".DrillTolerance" => Ok(ExtendedCode::ApertureAttribute(
                 ApertureAttribute::DrillTolerance {
                     plus: attr_args[1].parse::<f64>().map_err(|_| {
                         ContentError::DrillToleranceParseNumError {
@@ -1447,6 +1516,10 @@ fn parse_delete_attribute(line: Chars) -> Result<Command, ContentError> {
 
 /// Extract the individual elements (AttributeName and Fields) from Chars
 ///
+/// Gerber spec 2024.05 5.1 Attributes overview:
+/// "In accordance with the general rule in 3.4.3 standard attribute names must begin with a dot ‘.’
+/// while user attribute names cannot begin with a dot."
+///
 /// The arguments of the attribute statement can have whitespace as this will be trimmed.
 /// `attribute_chars` argument must be the **trimmed line** from the gerber file
 /// with the **first three characters removed**. E.g. ".Part,single*%" not "%TF.Part,single*%"
@@ -1455,7 +1528,7 @@ fn parse_delete_attribute(line: Chars) -> Result<Command, ContentError> {
 /// let attribute_chars = ".DrillTolerance, 0.02, 0.01 *%".chars();
 ///
 /// let arguments = get_attr_args(attribute_chars).unwrap();
-/// assert_eq!(arguments, vec!["DrillTolerance","0.02","0.01"])
+/// assert_eq!(arguments, vec![".DrillTolerance","0.02","0.01"])
 /// ```
 pub fn get_attr_args(mut attribute_chars: Chars) -> Result<Vec<&str>, ContentError> {
     attribute_chars
@@ -1465,11 +1538,6 @@ pub fn get_attr_args(mut attribute_chars: Chars) -> Result<Vec<&str>, ContentErr
         })?;
     attribute_chars
         .next_back()
-        .ok_or(ContentError::InvalidFileAttribute {
-            file_attribute: attribute_chars.as_str().to_string(),
-        })?;
-    attribute_chars
-        .next()
         .ok_or(ContentError::InvalidFileAttribute {
             file_attribute: attribute_chars.as_str().to_string(),
         })?;

@@ -1,5 +1,6 @@
 use regex::Regex;
 use std::fmt::Formatter;
+use std::num::ParseIntError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -20,9 +21,14 @@ pub enum ContentError {
     NoRegexMatch { regex: Regex },
     #[error(
         "Command was uniquely identified, and matched expected regex, \
-    but did not contain the expected capture(s).\nRegex: {regex}. capture index: {capture_index}"
+    but did not contain the expected capture.\nRegex: {regex}. capture index: {capture_index}"
     )]
     MissingRegexCapture { regex: Regex, capture_index: usize },
+    #[error(
+        "Command was uniquely identified, and matched expected regex, \
+    but did not contain the expected named capture.\nRegex: {regex}. capture name: {capture_name}"
+    )]
+    MissingRegexNamedCapture { regex: Regex, capture_name: String },
     #[error("After gerber doc was already assigned a name, another name command was found.")]
     TriedToSetImageNameTwice {},
     #[error("After gerber doc was already assigned a unit, another unit command was found.")]
@@ -43,6 +49,8 @@ pub enum ContentError {
     ParseFormatErrorInvalidDigit { digit_found: u8 },
     #[error("Error parsing char as base 10 digit: '{char_found:?}'.")]
     ParseDigitError { char_found: char },
+    #[error("Error parsing string as an integer, cause: '{cause}'.")]
+    ParseIntegerError { cause: ParseIntError },
     #[error("tried to parse '{aperture_code_str}' as an aperture code (integer) greater than 9 but failed.")]
     ApertureCodeParseFailed { aperture_code_str: String },
     #[error("tried to parse '{aperture_definition_str}' as an aperture definition but failed.")]
@@ -74,6 +82,8 @@ pub enum ContentError {
     UnsupportedFileAttribute { attribute_name: String },
     #[error("The File attribute '{file_attribute}' cannot be parsed.")]
     InvalidFileAttribute { file_attribute: String },
+    #[error("Invalid parameter. '{parameter}' cannot be parsed.")]
+    InvalidParameter { parameter: String },
     #[error("The Aperture attribute '{aperture_attribute}' cannot be parsed or is mis-formed.")]
     InvalidApertureAttribute { aperture_attribute: String },
     #[error(

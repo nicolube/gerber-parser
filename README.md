@@ -25,7 +25,6 @@ Recently support has been added for the files that DipTrace, KiCad, etc.
 Currently missing:
 
 * `LM`, `LR`, `LS`, `IP` commands (note: these are deprecated in the spec)
-* `AB` commands
 
 Partial:
 

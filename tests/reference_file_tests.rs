@@ -37,8 +37,15 @@ fn polarities_and_apertures_to_rust() {
     parse(reader).unwrap();
 }
 
+// Remaining issues:
+// 1. Not parsed:
+// ```
+// %AMTHERMAL80*
+// 7,0,0,0.800,0.550,0.125,45*%
+// ```
+// 2. Trailing/Leading zeros not retained
 #[test]
-#[ignore = "requires updated gerber-types"]
+#[ignore]
 fn polarities_and_apertures_to_rust_and_back() {
     let gbr_string = include_str!("../assets/reference_files/polarities_and_apertures.gbr");
     let reader = utils::gerber_to_reader(gbr_string);
@@ -61,16 +68,18 @@ fn a_drill_file_to_rust() {
     parse(reader).unwrap();
 }
 
+// Remaining issues:
+// 1. Trailing/Leading zeros not retained
 #[test]
-#[ignore = "requires updated gerber-types"]
+#[ignore]
 fn a_drill_file_to_rust_and_back() {
     let gbr_string = include_str!("../assets/reference_files/drill_file.gbr");
     let reader = utils::gerber_to_reader(gbr_string);
     let doc = parse(reader).unwrap();
 
     assert_eq!(
-        gbr_string,
         utils::gerber_doc_as_str(&doc),
+        gbr_string,
         "unexpected differences, commands: {:?}",
         doc.commands
     )

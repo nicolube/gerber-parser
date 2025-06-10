@@ -4,12 +4,12 @@ use gerber_parser::{
     coordinates_from_gerber, coordinates_offset_from_gerber, parse, partial_coordinates_from_gerber,
 };
 use gerber_types::{
-    Aperture, ApertureAttribute, ApertureDefinition, ApertureFunction, ApertureMacro, Circle,
-    CirclePrimitive, Command, CoordinateFormat, CoordinateOffset, Coordinates, DCode, ExtendedCode,
-    FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode, InterpolationMode, MCode,
-    MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Operation, OutlinePrimitive, Part,
-    Polygon, PolygonPrimitive, QuadrantMode, Rectangular, StepAndRepeat, Unit, VariableDefinition,
-    VectorLinePrimitive,
+    Aperture, ApertureAttribute, ApertureBlock, ApertureDefinition, ApertureFunction,
+    ApertureMacro, Circle, CirclePrimitive, Command, CoordinateFormat, CoordinateOffset,
+    Coordinates, DCode, ExtendedCode, FileAttribute, FileFunction, FilePolarity, FunctionCode,
+    GCode, InterpolationMode, MCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger,
+    Operation, OutlinePrimitive, Part, Polygon, PolygonPrimitive, QuadrantMode, Rectangular,
+    StepAndRepeat, Unit, VariableDefinition, VectorLinePrimitive,
 };
 
 mod utils;
@@ -618,8 +618,6 @@ fn TA_aperture_attributes() {
     %TA.AperFunction,Profile*%
     %TA.AperFunction,   Other,   teststring*%
 
-    %TA.DrillTolerance, 0.032, 0.022*%
-
     M02*        
     ",
     );
@@ -641,12 +639,6 @@ fn TA_aperture_attributes() {
                     "teststring".to_string()
                 ))
             ))),
-            Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
-                ApertureAttribute::DrillTolerance {
-                    plus: 0.032,
-                    minus: 0.022
-                }
-            )))
         ]
     )
 }
@@ -664,7 +656,7 @@ fn TF_file_attributes() {
 
     %TF.Part, Array*%
     %TF.Part, Other, funnypartname*%
-    %TF.FileFunction, test part*%
+    %TF.FileFunction, Other,test part*%
     %TF.FilePolarity, Negative*%
 
     M02*        
@@ -1782,6 +1774,107 @@ fn vector_font_macro_1() {
                         ])
                     )
                 )
+            ))),
+        ]
+    );
+}
+
+// See gerber spec 2021-02, section 4.5
+#[test]
+fn test_aperture_block() {
+    // given
+    let reader = utils::gerber_to_reader(
+        r#"
+        G04 Ucamco copyright*
+        %TF.GenerationSoftware,Ucamco,UcamX,2016.04-160425*%
+        %TF.CreationDate,2016-04-25T00:00;00+01:00*%
+        %TF.Part,Other,Testfile*%
+        %FSLAX46Y46*%
+        %MOMM*%
+        G04 Define standard apertures*
+        %ADD10C,7.500000*%
+        %ADD11C,15*%
+        %ADD12R,20X10*%
+        %ADD13R,10X20*%
+        G04 Define block aperture 100, consisting of two draws and a round dot*
+        %ABD100*%
+        D10*
+        X65532000Y17605375D02*
+        Y65865375D01*
+        X-3556000D01*
+        D11*
+        X-3556000Y17605375D03*
+        %AB*%
+        G04 Define block aperture 102, consisting of 2x3 flashes of aperture 101
+        and 1 flash of D12*
+        %ABD102*%
+        G04 Define nested block aperture 101, consisting of 2x2 flashes of
+        aperture 100*
+        %ABD101*%
+        D100*
+        X0Y0D03*
+        X0Y70000000D03*
+        X100000000Y0D03*
+        X100000000Y70000000D03*
+        %AB*%
+        D101*
+        X0Y0D03*
+        X0Y160000000D03*
+        X0Y320000000D03*
+        X230000000Y0D03*
+        X230000000Y160000000D03*
+        X230000000Y320000000D03*
+        D12*
+        X19500000Y-10000000D03*
+        %AB*%
+        G04 Flash D13 twice outside of blocks*
+        D13*
+        X-30000000Y10000000D03*
+        X143000000Y-30000000D03*
+        G04 Flash block 102 3x2 times*
+        D102*
+        X0Y0D03*
+        X0Y520000000D03*
+        X500000000Y0D03*
+        X500000000Y520000000D03*
+        X1000000000Y0D03*
+        X1000000000Y520000000D03*
+        M02*
+    "#,
+    );
+
+    // when
+    let commands = parse(reader).unwrap().commands;
+    dump_commands(&commands);
+
+    // then
+    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureBlock(_))))
+        ).collect()};
+
+    let filtered_commands = filter_commands(commands);
+    dump_commands(&filtered_commands);
+
+    assert_eq_commands!(
+        filtered_commands,
+        vec![
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureBlock(
+                ApertureBlock::Open { code: 100 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureBlock(
+                ApertureBlock::Close
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureBlock(
+                ApertureBlock::Open { code: 102 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureBlock(
+                ApertureBlock::Open { code: 101 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureBlock(
+                ApertureBlock::Close
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureBlock(
+                ApertureBlock::Close
             ))),
         ]
     );
