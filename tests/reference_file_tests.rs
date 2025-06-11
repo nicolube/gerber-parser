@@ -1,5 +1,5 @@
 use gerber_parser::parse;
-mod utils;
+use gerber_parser::util::{gerber_doc_as_str, gerber_to_reader};
 
 /// All files in these tests are taken from the Ucamco 20220409 file format examples
 /// downloaded from https://www.ucamco.com/en/gerber/downloads on 20220628
@@ -11,18 +11,18 @@ mod utils;
 fn two_square_boxes_to_rust() {
     // unmodified reference file, purely to check for panics
     let gbr_string = include_str!("../assets/reference_files/two_square_boxes.gbr");
-    let reader = utils::gerber_to_reader(gbr_string);
+    let reader = gerber_to_reader(gbr_string);
     parse(reader).unwrap();
 }
 
 #[test]
 fn two_square_boxes_to_rust_and_back() {
     let gbr_string = include_str!("../assets/reference_files/two_square_boxes.gbr");
-    let reader = utils::gerber_to_reader(gbr_string);
+    let reader = gerber_to_reader(gbr_string);
     let doc = parse(reader).unwrap();
 
     assert_eq!(
-        utils::gerber_doc_as_str(&doc),
+        gerber_doc_as_str(&doc),
         gbr_string,
         "unexpected differences, commands: {:?}",
         doc.commands
@@ -33,7 +33,7 @@ fn two_square_boxes_to_rust_and_back() {
 fn polarities_and_apertures_to_rust() {
     // unmodified reference file, purely to check for panics
     let gbr_string = include_str!("../assets/reference_files/polarities_and_apertures.gbr");
-    let reader = utils::gerber_to_reader(gbr_string);
+    let reader = gerber_to_reader(gbr_string);
     parse(reader).unwrap();
 }
 
@@ -48,11 +48,11 @@ fn polarities_and_apertures_to_rust() {
 #[ignore]
 fn polarities_and_apertures_to_rust_and_back() {
     let gbr_string = include_str!("../assets/reference_files/polarities_and_apertures.gbr");
-    let reader = utils::gerber_to_reader(gbr_string);
+    let reader = gerber_to_reader(gbr_string);
     let doc = parse(reader).unwrap();
 
     assert_eq!(
-        utils::gerber_doc_as_str(&doc),
+        gerber_doc_as_str(&doc),
         gbr_string,
         "unexpected differences, commands: {:?}",
         doc.commands
@@ -64,7 +64,7 @@ fn polarities_and_apertures_to_rust_and_back() {
 fn a_drill_file_to_rust() {
     let gbr_string = "   
     ";
-    let reader = utils::gerber_to_reader(gbr_string);
+    let reader = gerber_to_reader(gbr_string);
     parse(reader).unwrap();
 }
 
@@ -74,11 +74,11 @@ fn a_drill_file_to_rust() {
 #[ignore]
 fn a_drill_file_to_rust_and_back() {
     let gbr_string = include_str!("../assets/reference_files/drill_file.gbr");
-    let reader = utils::gerber_to_reader(gbr_string);
+    let reader = gerber_to_reader(gbr_string);
     let doc = parse(reader).unwrap();
 
     assert_eq!(
-        utils::gerber_doc_as_str(&doc),
+        gerber_doc_as_str(&doc),
         gbr_string,
         "unexpected differences, commands: {:?}",
         doc.commands

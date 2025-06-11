@@ -12,7 +12,10 @@
 //! As the crate is still in the early version, expect significant changes over time, as both this
 //! crate and `gerber-types` will need to undergo changes.
 
-// These modules are not public, instead we re-export the public types from them below
+// Public modules
+pub mod util;
+
+// Private modules - we re-export the public types from them below
 mod document;
 mod error;
 mod parser;

@@ -111,25 +111,25 @@ pub fn parse<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, (GerberDoc, Par
         let line = raw_line.trim();
 
         // Show the line
-        log::trace!("{}. {}", line_number + 1, &line);
+        log::trace!("Line: {}. Content: {:?}", line_number + 1, &line);
 
         if !line.is_empty() {
             let line_results = parse_line(line, &mut gerber_doc, &mut parser_context);
             for result in line_results.into_iter().flatten() {
                 let final_result = match result {
                     Ok(command) => {
-                        log::trace!("parsed command: {:?}", command);
+                        log::trace!("Parsed command: {:?}", command);
                         Ok(command)
                     }
                     Err(ContentError::IoError(error)) => {
-                        log::error!("io error: {}", error);
+                        log::error!("IO error: {}", error);
                         parse_error = Some(ParseError::IoError(error));
                         break;
                     }
                     Err(error_without_context) => {
                         let contexted_error = error_without_context
                             .to_with_context(Some(line.to_string()), Some(line_number));
-                        log::error!("content error: {}", contexted_error);
+                        log::error!("Content error: {}", contexted_error);
                         Err(contexted_error)
                     }
                 };

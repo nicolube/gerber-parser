@@ -13,8 +13,9 @@ use gerber_types::{
     PlatedDrill, Polygon, PolygonPrimitive, Position, Profile, QuadrantMode, Rectangular,
     StepAndRepeat, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
 };
-
-mod utils;
+mod util;
+use util::testing::logging_init;
+use gerber_parser::util::gerber_to_reader;
 
 /// This macro is used extensively by the tests to parse, then filter commands based on the closure $c which takes
 /// a single `Command` as an argument, the closure should return 'true' to keep the command, false otherwise.
@@ -69,7 +70,7 @@ macro_rules! assert_eq_commands {
 
 // #[test]
 // fn test_full_gerber() {
-//     let gerber_reader = utils::gerber_to_reader(&SAMPLE_GERBER_1);
+//     let gerber_reader = gerber_to_reader(&SAMPLE_GERBER_1);
 //     let gbr = parse_gerber(gerber_reader);
 //     println!("{}",&gbr);
 //     assert_eq!(gbr, GerberDoc::new());
@@ -77,7 +78,10 @@ macro_rules! assert_eq_commands {
 
 #[test]
 fn format_specification() {
-    let reader_fs_1 = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader_fs_1 = gerber_to_reader(
         "
     %FSLAX15Y15*%
     %MOMM*%
@@ -85,7 +89,7 @@ fn format_specification() {
     ",
     );
 
-    let reader_fs_2 = utils::gerber_to_reader(
+    let reader_fs_2 = gerber_to_reader(
         "
     %FSLAX36Y36*%
     %MOIN*%
@@ -107,7 +111,10 @@ fn format_specification() {
 
 #[test]
 fn units() {
-    let reader_mm = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader_mm = gerber_to_reader(
         "
     G04 The next line specifies the precision of the units*
     %FSLAX23Y23*%
@@ -119,7 +126,7 @@ fn units() {
     ",
     );
 
-    let reader_in = utils::gerber_to_reader(
+    let reader_in = gerber_to_reader(
         "
     G04 The next line specifies the precision of the units*
     %FSLAX23Y23*%
@@ -139,7 +146,9 @@ fn units() {
 #[allow(non_snake_case)]
 fn G01_G03_standalone() {
     // given
-    let reader = utils::gerber_to_reader(
+    logging_init();
+
+    let reader = gerber_to_reader(
         r#"
         G01*
         G02*
@@ -176,7 +185,10 @@ fn G01_G03_standalone() {
 #[test]
 #[allow(non_snake_case)]
 fn G04_comments() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     G04 Comment before typical configuration lines*
     %FSLAX23Y23*%
@@ -210,7 +222,10 @@ fn G04_comments() {
 
 #[test]
 fn aperture_selection() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -274,7 +289,10 @@ fn aperture_selection() {
 #[test]
 #[allow(non_snake_case)]
 fn D01_interpolation_linear() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -330,7 +348,10 @@ fn D01_interpolation_linear() {
 #[test]
 #[allow(non_snake_case)]
 fn D01_interpolation_circular() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -379,7 +400,10 @@ fn D01_interpolation_circular() {
 #[test]
 #[allow(non_snake_case)]
 fn DO2_move_to_command() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -424,7 +448,10 @@ fn DO2_move_to_command() {
 #[test]
 #[allow(non_snake_case)]
 fn DO3_flash_command() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -466,7 +493,10 @@ fn DO3_flash_command() {
 /// valid statements.
 #[test]
 fn omitted_coordinate() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -517,7 +547,10 @@ fn omitted_coordinate() {
 /// Test Step and Repeat command (%SR*%)
 #[test]
 fn step_and_repeat() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -562,7 +595,10 @@ fn step_and_repeat() {
 
 #[test]
 fn aperture_definitions() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX26Y26*%
     %MOMM*%
@@ -675,7 +711,10 @@ fn aperture_definitions() {
 #[test]
 #[allow(non_snake_case)]
 fn TA_aperture_attributes() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -717,7 +756,10 @@ fn TA_aperture_attributes() {
 #[test]
 #[allow(non_snake_case)]
 fn TA_custom_attributes() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -760,7 +802,10 @@ fn TA_custom_attributes() {
 #[test]
 #[allow(non_snake_case)]
 fn TF_custom_attributes() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -803,7 +848,10 @@ fn TF_custom_attributes() {
 #[test]
 #[allow(non_snake_case)]
 fn TO_custom_attributes() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -846,7 +894,10 @@ fn TO_custom_attributes() {
 #[test]
 #[allow(non_snake_case)]
 fn TO_attributes() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -953,9 +1004,9 @@ fn TO_attributes() {
 #[test]
 #[allow(non_snake_case)]
 fn TF_file_attributes() {
-    env_logger::init();
+    logging_init();
 
-    let reader = utils::gerber_to_reader(
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -1477,7 +1528,7 @@ fn TF_file_attributes() {
 // #[test]
 // // TODO: make more exhaustive
 // fn TO_object_attributes() {
-//     let reader = utils::gerber_to_reader("
+//     let reader = gerber_to_reader("
 //     %FSLAX23Y23*%
 //     %MOMM*%
 //
@@ -1508,7 +1559,10 @@ fn TF_file_attributes() {
 #[test]
 #[should_panic]
 fn conflicting_aperture_codes() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%        
@@ -1527,7 +1581,10 @@ fn conflicting_aperture_codes() {
 #[test]
 #[should_panic]
 fn missing_eof() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%-
@@ -1542,7 +1599,10 @@ fn missing_eof() {
 #[test]
 #[should_panic]
 fn multiple_unit_statements() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -1559,7 +1619,10 @@ fn multiple_unit_statements() {
 #[test]
 #[should_panic]
 fn multiple_fs_statements() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     G04 We can only declare the format specification once in a document* 
@@ -1576,7 +1639,10 @@ fn multiple_fs_statements() {
 #[test]
 #[should_panic]
 fn nonexistent_aperture_selection() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%        
     %MOMM*%
@@ -1598,7 +1664,10 @@ fn nonexistent_aperture_selection() {
 #[ignore]
 #[should_panic]
 fn coordinates_not_within_format() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
     %MOMM*%
@@ -1620,7 +1689,10 @@ fn coordinates_not_within_format() {
 #[test]
 #[allow(non_snake_case)]
 fn diptrace_Dxx_statements() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         r#"
     %TF.GenerationSoftware,Novarm,DipTrace,4.3.0.6*%
     %TF.CreationDate,2025-04-22T21:52:19+00:00*%
@@ -1681,7 +1753,7 @@ fn diptrace_Dxx_statements() {
 #[test]
 fn test_outline_macro_and_aperture_definition() {
     // given
-    let reader = utils::gerber_to_reader(
+    let reader = gerber_to_reader(
         r#"
     %TF.GenerationSoftware,Novarm,DipTrace,4.3.0.6*%
     %TF.CreationDate,2025-04-24T12:32:15+00:00*%
@@ -1746,7 +1818,7 @@ fn test_outline_macro_and_aperture_definition() {
 #[test]
 fn test_polygon_macro_and_aperture_definition() {
     // given
-    let reader = utils::gerber_to_reader(
+    let reader = gerber_to_reader(
         r#"
     %FSLAX36Y36*%
     %MOMM*%
@@ -1801,7 +1873,10 @@ fn test_polygon_macro_and_aperture_definition() {
 /// Diptrace 4.3 generates operation commands without a leading `0` on the `D0*` commands.
 #[test]
 fn test_standalone_d_commands() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         r#"
 %FSLAX35Y35*%
 %MOMM*%
@@ -1907,7 +1982,10 @@ M02*
 #[test]
 #[allow(non_snake_case)]
 fn test_kicad_macro() {
-    let reader = utils::gerber_to_reader(
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
         r#"
 %TF.GenerationSoftware,KiCad,Pcbnew,8.0.3*%
 %TF.CreationDate,2025-04-28T16:25:44+02:00*%
@@ -2078,7 +2156,7 @@ M02*
 #[test]
 fn test_macro_with_variable_definition() {
     // given
-    let reader = utils::gerber_to_reader(
+    let reader = gerber_to_reader(
         r#"
     %FSLAX35Y35*%
     %MOMM*%
@@ -2175,7 +2253,7 @@ fn test_macro_with_variable_definition() {
 #[test]
 fn test_jlccam_macro_1_with_empty_line() {
     // given
-    let reader = utils::gerber_to_reader(
+    let reader = gerber_to_reader(
         r#"
     G04 -- output software:jlccam v1.5.1 *
     G04 -- dbname:*
@@ -2269,7 +2347,7 @@ fn diptrace_rounded_rectangle_pcb_outline() {
     //      See 2024.06 Gerber spec Section 8.3.1 "Combining G01/G02/G03 and D01 in a single command".
 
     // given
-    let reader = utils::gerber_to_reader(
+    let reader = gerber_to_reader(
         r#"
         %TF.GenerationSoftware,Novarm,DipTrace,4.3.0.6*%
         %TF.CreationDate,2025-06-02T14:41:54+00:00*%
@@ -2408,7 +2486,7 @@ fn diptrace_rounded_rectangle_pcb_outline() {
 #[test]
 fn vector_font_macro_1() {
     // given
-    let reader = utils::gerber_to_reader(
+    let reader = gerber_to_reader(
         r#"
         %FSLAX46Y46*%
         G04 Gerber Fmt 4.6, Leading zero omitted, Abs format (unit mm)*
@@ -2418,10 +2496,10 @@ fn vector_font_macro_1() {
         
         
         %AMVECTORFONT_77*
-        0 ASCII 'M' 77 (0x4D)
-        0 $1 = width
-        0 $2 = scale
-        0 $3 = rotation
+        0 ASCII 'M' 77 (0x4D)*
+        0 $1 = width*
+        0 $2 = scale*
+        0 $3 = rotation*
         20,1,$1,-10x$2,-10x$2,-10x$2,10x$2,$3*
         20,1,$1,$2x-10,$2x10,$2x0,$2x-10,$3*
         20,1,$1,0x$2,-10x$2,10x$2,10x$2,$3*
@@ -2539,7 +2617,7 @@ fn vector_font_macro_1() {
 #[test]
 fn test_aperture_block() {
     // given
-    let reader = utils::gerber_to_reader(
+    let reader = gerber_to_reader(
         r#"
         G04 Ucamco copyright*
         %TF.GenerationSoftware,Ucamco,UcamX,2016.04-160425*%
@@ -2634,7 +2712,9 @@ fn test_aperture_block() {
 #[test]
 fn librepcb_single_line_macro() {
     // given
-    let reader = utils::gerber_to_reader(
+    logging_init();
+
+    let reader = gerber_to_reader(
         r#"
         G04 --- HEADER BEGIN --- *
         G04 #@! TF.GenerationSoftware,LibrePCB,LibrePCB,0.1.2*
