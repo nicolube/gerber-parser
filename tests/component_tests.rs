@@ -5,14 +5,33 @@ use gerber_parser::{
 };
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureBlock, ApertureDefinition, ApertureFunction,
-    ApertureMacro, Circle, CirclePrimitive, Command, CoordinateFormat, CoordinateOffset,
-    Coordinates, DCode, ExtendedCode, FileAttribute, FileFunction, FilePolarity, FunctionCode,
-    GCode, InterpolationMode, MCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger,
-    Operation, OutlinePrimitive, Part, Polygon, PolygonPrimitive, QuadrantMode, Rectangular,
-    StepAndRepeat, Unit, VariableDefinition, VectorLinePrimitive,
+    ApertureMacro, Circle, CirclePrimitive, Command, ComponentCharacteristics, ComponentMounting,
+    CoordinateFormat, CoordinateOffset, Coordinates, DCode, ExtendedCode, FileAttribute,
+    FileFunction, FilePolarity, FunctionCode, GCode, InterpolationMode, MCode, MacroBoolean,
+    MacroContent, MacroDecimal, MacroInteger, ObjectAttribute, Operation, OutlinePrimitive, Part,
+    Polygon, PolygonPrimitive, QuadrantMode, Rectangular, StepAndRepeat, Unit, VariableDefinition,
+    VectorLinePrimitive,
 };
 
 mod utils;
+
+/// This macro is used extensively by the tests to parse, then filter commands based on the closure $c which takes
+/// a single `Command` as an argument, the closure should return 'true' to keep the command, false otherwise.
+/// The closure is often implemented using `matches!(command, ...)`
+macro_rules! parse_and_filter {
+    ($reader:ident, $commands:ident, $filtered_commands:ident, $c:expr) => {
+        let $commands = parse($reader).unwrap().commands;
+        dump_commands(&$commands);
+
+        // then
+        let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
+            cmds.into_iter().filter($c).collect()};
+
+        let $filtered_commands = filter_commands($commands);
+        dump_commands(&$filtered_commands);
+
+    };
+}
 
 fn dump_commands(commands: &[Result<Command, GerberParserErrorWithContext>]) {
     println!("{}", commands_to_string(commands));
@@ -127,18 +146,14 @@ fn G01_G03_standalone() {
     );
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::GCode(_)))
+            | Ok(Command::FunctionCode(FunctionCode::MCode(MCode::EndOfFile)))
+    ));
 
     // then
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::GCode(_))) | Ok(Command::FunctionCode(FunctionCode::MCode(MCode::EndOfFile))))
-        ).collect()};
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
-
-    assert_eq_commands!(
+    assert_eq!(
         filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::GCode(
@@ -168,20 +183,26 @@ fn G04_comments() {
     ",
     );
 
-    let filter_commands = |cmds: Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(_)))))).collect()
-    };
-
-    let test_vec: Vec<Result<Command, GerberParserErrorWithContext>> = vec![
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
         Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
-            "Comment before typical configuration lines".to_string(),
-        )))),
-        Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
-            "And now a comment after them".to_string(),
-        )))),
-    ];
+            _
+        ))))
+    ));
 
-    assert_eq!(filter_commands(parse(reader).unwrap().commands), test_vec)
+    // then
+    assert_eq!(
+        filtered_commands,
+        vec![
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+                "Comment before typical configuration lines".to_string(),
+            )))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+                "And now a comment after them".to_string(),
+            )))),
+        ]
+    );
 }
 
 #[test]
@@ -215,11 +236,17 @@ fn aperture_selection() {
     // renderers can handle them appropriately, e.g. by displaying a error or rendering a placeholder where the aperture
     // should be.
 
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::DCode(DCode::SelectAperture(_)))))).collect()};
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::DCode(
+            DCode::SelectAperture(_)
+        )))
+    ));
 
+    // then
     assert_eq!(
-        filter_commands(parse(reader).unwrap().commands),
+        filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::SelectAperture(22)
@@ -260,12 +287,19 @@ fn D01_interpolation_linear() {
     ",
     );
 
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(_, _))))))).collect()};
-
     let fs = CoordinateFormat::new(2, 3);
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::DCode(
+            DCode::Operation(Operation::Interpolate(_, _))
+        )))
+    ));
+
+    // then
     assert_eq!(
-        filter_commands(parse(reader).unwrap().commands),
+        filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
@@ -308,12 +342,19 @@ fn D01_interpolation_circular() {
     ",
     );
 
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(_, _))))))).collect()};
-
     let fs = CoordinateFormat::new(2, 3);
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::DCode(
+            DCode::Operation(Operation::Interpolate(_, _))
+        )))
+    ));
+
+    // then
     assert_eq!(
-        filter_commands(parse(reader).unwrap().commands),
+        filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
@@ -353,12 +394,18 @@ fn DO2_move_to_command() {
     ",
     );
 
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Move(_))))))).collect()};
-
     let fs = CoordinateFormat::new(2, 3);
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::DCode(
+            DCode::Operation(Operation::Move(_))
+        )))
+    ));
+
+    // then
     assert_eq!(
-        filter_commands(parse(reader).unwrap().commands),
+        filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Move(coordinates_from_gerber(0, -333, fs)))
@@ -389,12 +436,18 @@ fn DO3_flash_command() {
     ",
     );
 
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Flash(_))))))).collect()};
-
     let fs = CoordinateFormat::new(2, 3);
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::DCode(
+            DCode::Operation(Operation::Flash(_))
+        )))
+    ));
+
+    // then
     assert_eq!(
-        filter_commands(parse(reader).unwrap().commands),
+        filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Flash(coordinates_from_gerber(4000, -5000, fs)))
@@ -426,12 +479,19 @@ fn omitted_coordinate() {
     ",
     );
 
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Flash(_))))))).collect()};
-
     let fs = CoordinateFormat::new(2, 3);
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::DCode(
+            DCode::Operation(Operation::Flash(_))
+        )))
+    ));
+
+    // then
     assert_eq!(
-        filter_commands(parse(reader).unwrap().commands),
+        filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(
@@ -472,11 +532,15 @@ fn step_and_repeat() {
     ",
     );
 
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::StepAndRepeat(_))))).collect()};
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::StepAndRepeat(_)))
+    ));
 
+    // then
     assert_eq!(
-        filter_commands(parse(reader).unwrap().commands),
+        filtered_commands,
         vec![
             Ok(Command::ExtendedCode(ExtendedCode::StepAndRepeat(
                 StepAndRepeat::Open {
@@ -622,11 +686,15 @@ fn TA_aperture_attributes() {
     ",
     );
 
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(_))))).collect()};
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(_)))
+    ));
 
+    // then
     assert_eq!(
-        filter_commands(parse(reader).unwrap().commands),
+        filtered_commands,
         vec![
             Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
                 ApertureAttribute::ApertureFunction(ApertureFunction::WasherPad)
@@ -638,6 +706,242 @@ fn TA_aperture_attributes() {
                 ApertureAttribute::ApertureFunction(ApertureFunction::Other(
                     "teststring".to_string()
                 ))
+            ))),
+        ]
+    )
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn TA_custom_attributes() {
+    let reader = utils::gerber_to_reader(
+        "
+    %FSLAX23Y23*%
+    %MOMM*%
+
+    %TANonStandardAttribute  ,  Value 1  ,  Value 2  *%
+    %TA.UnsupportedStandardAttribute,Value A,Value B*%
+
+    M02*
+    ",
+    );
+
+    // Note: leading and trailing spaces are trimmed
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(_)))
+    ));
+
+    // then
+    assert_eq!(
+        filtered_commands,
+        vec![
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
+                ApertureAttribute::UserDefined {
+                    name: "NonStandardAttribute".to_string(),
+                    values: vec!["Value 1".to_string(), "Value 2".to_string(),],
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
+                ApertureAttribute::UserDefined {
+                    name: ".UnsupportedStandardAttribute".to_string(),
+                    values: vec!["Value A".to_string(), "Value B".to_string(),],
+                }
+            ))),
+        ]
+    )
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn TF_custom_attributes() {
+    let reader = utils::gerber_to_reader(
+        "
+    %FSLAX23Y23*%
+    %MOMM*%
+
+    %TFNonStandardAttribute  ,  Value 1  ,  Value 2  *%
+    %TF.UnsupportedStandardAttribute,Value A,Value B*%
+
+    M02*
+    ",
+    );
+
+    // Note: leading and trailing spaces are trimmed
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(_)))
+    ));
+
+    // then
+    assert_eq!(
+        filtered_commands,
+        vec![
+            Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                FileAttribute::UserDefined {
+                    name: "NonStandardAttribute".to_string(),
+                    values: vec!["Value 1".to_string(), "Value 2".to_string(),],
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                FileAttribute::UserDefined {
+                    name: ".UnsupportedStandardAttribute".to_string(),
+                    values: vec!["Value A".to_string(), "Value B".to_string(),],
+                }
+            ))),
+        ]
+    )
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn TO_custom_attributes() {
+    let reader = utils::gerber_to_reader(
+        "
+    %FSLAX23Y23*%
+    %MOMM*%
+
+    %TONonStandardAttribute  ,  Value 1  ,  Value 2  *%
+    %TO.UnsupportedStandardAttribute,Value A,Value B*%
+
+    M02*
+    ",
+    );
+
+    // Note: leading and trailing spaces are trimmed
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(_)))
+    ));
+
+    // then
+    assert_eq!(
+        filtered_commands,
+        vec![
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::UserDefined {
+                    name: "NonStandardAttribute".to_string(),
+                    values: vec!["Value 1".to_string(), "Value 2".to_string(),],
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::UserDefined {
+                    name: ".UnsupportedStandardAttribute".to_string(),
+                    values: vec!["Value A".to_string(), "Value B".to_string(),],
+                }
+            ))),
+        ]
+    )
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn TO_attributes() {
+    let reader = utils::gerber_to_reader(
+        "
+    %FSLAX23Y23*%
+    %MOMM*%
+
+    %TO.CRot,359.99*%
+    %TO.CMfr,AVX*%
+    %TO.CMPN,42AA69*%
+    %TO.CVal,10uF 6.3V*%
+    %TO.CMnt,TH*%
+    %TO.CMnt,SMD*%
+    %TO.CMnt,Pressfit*%
+    %TO.CMnt,Other*%
+    %TO.CPgN,AVX_F98_CASE_M*%
+    %TO.CPgD,10uF 6.3V 0603 TANTALUM*%
+    %TO.CHgt,6.9*%
+    %TO.CLbN,Library Name*%
+    %TO.CLbD,Library Description*%
+
+    M02*
+    ",
+    );
+
+    // Note: leading and trailing spaces are trimmed
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(_)))
+    ));
+
+    // then
+    assert_eq!(
+        filtered_commands,
+        vec![
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::Rotation(
+                    359.99
+                ))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::Manufacturer(
+                    "AVX".to_string()
+                ))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::MPN(
+                    "42AA69".to_string()
+                ))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::Value(
+                    "10uF 6.3V".to_string()
+                ))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::Mount(
+                    ComponentMounting::ThroughHole
+                ))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::Mount(
+                    ComponentMounting::SMD
+                ))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::Mount(
+                    ComponentMounting::PressFit
+                ))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::Mount(
+                    ComponentMounting::Other
+                ))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::PackageName(
+                    "AVX_F98_CASE_M".to_string()
+                ))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(
+                    ComponentCharacteristics::PackageDescription(
+                        "10uF 6.3V 0603 TANTALUM".to_string()
+                    )
+                )
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::Height(6.9))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::LibraryName(
+                    "Library Name".to_string()
+                ))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::ComponentCharacteristics(
+                    ComponentCharacteristics::LibraryDescription("Library Description".to_string())
+                )
             ))),
         ]
     )
@@ -663,11 +967,15 @@ fn TF_file_attributes() {
     ",
     );
 
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(_))))).collect()};
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(_)))
+    ));
 
+    // then
     assert_eq!(
-        filter_commands(parse(reader).unwrap().commands),
+        filtered_commands,
         vec![
             Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
                 FileAttribute::Part(Part::Array)
@@ -852,17 +1160,16 @@ fn diptrace_Dxx_statements() {
     );
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::DCode(
+            DCode::Operation(Operation::Move(_))
+        ))) | Ok(Command::FunctionCode(FunctionCode::DCode(
+            DCode::Operation(Operation::Interpolate(_, _))
+        )))
+    ));
 
     // then
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Move(_))))) | Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(_, _))))))
-        ).collect()};
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
-
     let fs = CoordinateFormat::new(3, 5);
 
     assert_eq_commands!(
@@ -934,17 +1241,13 @@ fn test_outline_macro_and_aperture_definition() {
     };
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_)))
+    ));
 
     // then
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))))
-        ).collect()};
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
-
     assert_eq_commands!(
         filtered_commands,
         vec![
@@ -994,17 +1297,13 @@ fn test_polygon_macro_and_aperture_definition() {
     };
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_)))
+    ));
 
     // then
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))))
-        ).collect()};
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
-
     assert_eq_commands!(
         filtered_commands,
         vec![
@@ -1044,17 +1343,14 @@ M02*
     );
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::DCode(
+            DCode::Operation(_)
+        )))
+    ));
 
     // then
-    let filter_commands = |cmds: Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(_)))))).collect()
-    };
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
-
     let fs = CoordinateFormat::new(3, 5);
 
     assert_eq_commands!(
@@ -1260,17 +1556,13 @@ M02*
     };
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_)))
+    ));
 
     // then
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))))
-        ).collect()};
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
-
     assert_eq_commands!(
         filtered_commands,
         vec![
@@ -1378,17 +1670,13 @@ fn test_macro_with_variable_definition() {
     };
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_)))
+    ));
 
     // then
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))))
-        ).collect()};
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
-
     assert_eq_commands!(
         filtered_commands,
         vec![
@@ -1474,17 +1762,13 @@ fn test_jlccam_macro_1_with_empty_line() {
     };
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_)))
+    ));
 
     // then
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))))
-        ).collect()};
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
-
     assert_eq_commands!(
         filtered_commands,
         vec![
@@ -1535,17 +1819,13 @@ fn diptrace_rounded_rectangle_pcb_outline() {
     );
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::GCode(_)))
+            | Ok(Command::FunctionCode(FunctionCode::DCode(_)))
+    ));
 
     // then
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::FunctionCode(FunctionCode::GCode(_))) | Ok(Command::FunctionCode(FunctionCode::DCode(_))))
-        ).collect()};
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
-
     let format = CoordinateFormat {
         integer: 3,
         decimal: 5,
@@ -1745,16 +2025,11 @@ fn vector_font_macro_1() {
     };
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
-
-    // then
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_))) | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_))))
-        ).collect()};
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_)))
+    ));
 
     assert_eq_commands!(
         filtered_commands,
@@ -1844,16 +2119,10 @@ fn test_aperture_block() {
     );
 
     // when
-    let commands = parse(reader).unwrap().commands;
-    dump_commands(&commands);
-
-    // then
-    let filter_commands = |cmds:Vec<Result<Command, GerberParserErrorWithContext>>| -> Vec<Result<Command, GerberParserErrorWithContext>> {
-        cmds.into_iter().filter(|cmd| matches!(cmd, Ok(Command::ExtendedCode(ExtendedCode::ApertureBlock(_))))
-        ).collect()};
-
-    let filtered_commands = filter_commands(commands);
-    dump_commands(&filtered_commands);
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureBlock(_)))
+    ));
 
     assert_eq_commands!(
         filtered_commands,

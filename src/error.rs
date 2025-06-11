@@ -1,6 +1,6 @@
 use regex::Regex;
 use std::fmt::Formatter;
-use std::num::ParseIntError;
+use std::num::{ParseFloatError, ParseIntError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -51,6 +51,8 @@ pub enum ContentError {
     ParseDigitError { char_found: char },
     #[error("Error parsing string as an integer, cause: '{cause}'.")]
     ParseIntegerError { cause: ParseIntError },
+    #[error("Error parsing string as a decimal, cause: '{cause}'.")]
+    ParseDecimalError { cause: ParseFloatError },
     #[error("tried to parse '{aperture_code_str}' as an aperture code (integer) greater than 9 but failed.")]
     ApertureCodeParseFailed { aperture_code_str: String },
     #[error("tried to parse '{aperture_definition_str}' as an aperture definition but failed.")]
@@ -86,10 +88,10 @@ pub enum ContentError {
     InvalidParameter { parameter: String },
     #[error("The Aperture attribute '{aperture_attribute}' cannot be parsed or is mis-formed.")]
     InvalidApertureAttribute { aperture_attribute: String },
-    #[error(
-        "The Aperture attribute '{aperture_attribute}' is not supported, but presumably valid."
-    )]
+    #[error("The Aperture attribute '{aperture_attribute}' is not supported.")]
     UnsupportedApertureAttribute { aperture_attribute: String },
+    #[error("The Object attribute '{object_attribute}' is not supported.")]
+    UnsupportedObjectAttribute { object_attribute: String },
     #[error("Failed to parse delete attribute '{delete_attribute}'.")]
     InvalidDeleteAttribute { delete_attribute: String },
     #[error(

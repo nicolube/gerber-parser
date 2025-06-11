@@ -11,7 +11,10 @@ use crate::gerber_types::{
     Rectangular, SmdPadType, StepAndRepeat, Unit, VectorLinePrimitive,
 };
 use crate::ParseError;
-use gerber_types::{ApertureBlock, DrillRouteType, PlatedDrill, VariableDefinition};
+use gerber_types::{
+    ApertureBlock, ComponentCharacteristics, ComponentMounting, DrillRouteType, ObjectAttribute,
+    PlatedDrill, VariableDefinition,
+};
 use lazy_regex::*;
 use regex::Regex;
 use std::str::Chars;
@@ -313,6 +316,7 @@ fn parse_line<T: Read>(
                             .map(|file_attr| ExtendedCode::FileAttribute(file_attr).into()),
                         'A' => parse_aperture_attribute(linechars.clone()),
                         'D' => parse_delete_attribute(linechars.clone()),
+                        'O' => parse_object_attribute(linechars.clone()),
                         _ => Err(ContentError::UnknownCommand {}),
                     },
                     'S' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
@@ -1298,8 +1302,7 @@ fn parse_step_repeat_open(line: &str) -> Result<Command, ContentError> {
 /// For now we consider two types of TA statements:
 /// 1. Aperture Function (AperFunction) with field: String
 /// 2. Drill tolerance (DrillTolerance) with fields: [1] num [2] num
-///
-/// ⚠️ Any other Attributes (which seem to be valid within the gerber spec) we will **fail** to parse!
+/// 3. Anything else goes into UserDefined attribute.
 ///
 /// ⚠️ This parsing statement needs a lot of tests and validation at the current stage!
 fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
@@ -1363,8 +1366,9 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
                 }),
             },
             ".Md5" => Ok(FileAttribute::Md5(attr_args[1].to_string())),
-            _ => Err(ContentError::UnsupportedFileAttribute {
-                attribute_name: attr_args[0].to_string(),
+            _ => Ok(FileAttribute::UserDefined {
+                name: attr_args[0].to_string(),
+                values: attr_args[1..].iter().map(|v| v.to_string()).collect(),
             }),
         }
     } else {
@@ -1374,11 +1378,10 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
 
 /// Parse an Aperture Attribute (%TA.<AttributeName>[,<AttributeValue>]*%) into Command
 ///
-/// For now we consider two types of TA statements:
+/// For now we consider three types of TA statements:
 /// 1. Aperture Function (AperFunction) with field: String
 /// 2. Drill tolerance (DrillTolerance) with fields: [1] num [2] num
-///
-/// ⚠️ Any other Attributes (which seem to be valid within the gerber spec) we will **fail** to parse!
+/// 3. Anything else goes into UserDefined attribute.
 ///
 /// ⚠️ This parsing statement needs a lot of tests and validation at the current stage!
 fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
@@ -1491,9 +1494,92 @@ fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
                 },
             )
             .into()),
-            _ => Err(UnsupportedApertureAttribute {
-                aperture_attribute: raw_line,
-            }),
+            _ => Ok(
+                ExtendedCode::ApertureAttribute(ApertureAttribute::UserDefined {
+                    name: attr_args[0].to_string(),
+                    values: attr_args[1..].iter().map(|v| v.to_string()).collect(),
+                })
+                .into(),
+            ),
+        }
+    } else {
+        Err(ContentError::InvalidApertureAttribute {
+            aperture_attribute: raw_line,
+        })
+    }
+}
+
+/// Parse an Aperture Attribute (%TA.<AttributeName>[,<AttributeValue>]*%) into Command
+///
+/// For now we consider three types of TA statements:
+/// 1. Aperture Function (AperFunction) with field: String
+/// 2. Drill tolerance (DrillTolerance) with fields: [1] num [2] num
+/// 3. Anything else goes into UserDefined attribute.
+///
+/// ⚠️ This parsing statement needs a lot of tests and validation at the current stage!
+fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
+    macro_rules! parse_cc_decimal {
+        ($cc:ident, $value:expr) => {{
+            let decimal = $value
+                .parse::<f64>()
+                .map_err(|cause| ContentError::ParseDecimalError { cause })?;
+            Ok(
+                ExtendedCode::ObjectAttribute(ObjectAttribute::ComponentCharacteristics(
+                    ComponentCharacteristics::$cc(decimal),
+                ))
+                .into(),
+            )
+        }};
+    }
+    macro_rules! parse_cc_string {
+        ($cc:ident, $value:expr) => {{
+            Ok(
+                ExtendedCode::ObjectAttribute(ObjectAttribute::ComponentCharacteristics(
+                    ComponentCharacteristics::$cc($value.to_string()),
+                ))
+                .into(),
+            )
+        }};
+    }
+
+    let raw_line = line.as_str().to_string();
+    let attr_args = get_attr_args(line)?;
+    // log::debug!("TO ARGS: {:?}", attr_args);
+    if attr_args.len() >= 2 {
+        // we must have at least 1 field
+        match attr_args[0] {
+            ".CRot" => parse_cc_decimal!(Rotation, attr_args[1]),
+            ".CMfr" => parse_cc_string!(Manufacturer, attr_args[1]),
+            ".CMPN" => parse_cc_string!(MPN, attr_args[1]),
+            ".CVal" => parse_cc_string!(Value, attr_args[1]),
+            ".CMnt" => {
+                let component_mounting = match attr_args[1].to_lowercase().as_str() {
+                    "th" => Ok(ComponentMounting::ThroughHole),
+                    "smd" => Ok(ComponentMounting::SMD),
+                    "pressfit" => Ok(ComponentMounting::PressFit),
+                    "other" => Ok(ComponentMounting::Other),
+                    _ => Err(ContentError::InvalidParameter {
+                        parameter: attr_args[1].to_string(),
+                    }),
+                };
+                component_mounting.map(|component_mounting| {
+                    ExtendedCode::ObjectAttribute(ObjectAttribute::ComponentCharacteristics(
+                        ComponentCharacteristics::Mount(component_mounting),
+                    ))
+                    .into()
+                })
+            }
+            ".CFtp" => parse_cc_string!(Footprint, attr_args[1]),
+            ".CPgN" => parse_cc_string!(PackageName, attr_args[1]),
+            ".CPgD" => parse_cc_string!(PackageDescription, attr_args[1]),
+            ".CHgt" => parse_cc_decimal!(Height, attr_args[1]),
+            ".CLbN" => parse_cc_string!(LibraryName, attr_args[1]),
+            ".CLbD" => parse_cc_string!(LibraryDescription, attr_args[1]),
+            _ => Ok(ExtendedCode::ObjectAttribute(ObjectAttribute::UserDefined {
+                name: attr_args[0].to_string(),
+                values: attr_args[1..].iter().map(|v| v.to_string()).collect(),
+            })
+            .into()),
         }
     } else {
         Err(ContentError::InvalidApertureAttribute {
