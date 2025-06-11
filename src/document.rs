@@ -31,10 +31,7 @@ impl GerberDoc {
     pub fn into_commands(self) -> Vec<Command> {
         self.commands
             .into_iter()
-            .filter_map(|element| match element {
-                Ok(com) => Some(com),
-                Err(_) => None,
-            })
+            .filter_map(|element| element.ok())
             .collect()
     }
 
@@ -47,10 +44,7 @@ impl GerberDoc {
     pub fn as_commands(&self) -> Vec<&Command> {
         self.commands
             .iter()
-            .filter_map(|element| match element {
-                Ok(com) => Some(com),
-                Err(_) => None,
-            })
+            .filter_map(|element| element.as_ref().ok())
             .collect()
     }
 
