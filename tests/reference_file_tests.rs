@@ -38,14 +38,10 @@ fn polarities_and_apertures_to_rust() {
 }
 
 // Remaining issues:
-// 1. Not parsed:
-// ```
-// %AMTHERMAL80*
-// 7,0,0,0.800,0.550,0.125,45*%
-// ```
-// 2. Trailing/Leading zeros not retained
-#[test]
+// 1. Trailing/Leading zeros not retained
 #[ignore]
+#[test]
+
 fn polarities_and_apertures_to_rust_and_back() {
     let gbr_string = include_str!("../assets/reference_files/polarities_and_apertures.gbr");
     let reader = gerber_to_reader(gbr_string);

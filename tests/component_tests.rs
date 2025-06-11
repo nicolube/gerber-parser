@@ -11,7 +11,7 @@ use gerber_types::{
     GenerationSoftware, GerberDate, Ident, InterpolationMode, MCode, MacroBoolean, MacroContent,
     MacroDecimal, MacroInteger, NonPlatedDrill, ObjectAttribute, Operation, OutlinePrimitive, Part,
     PlatedDrill, Polygon, PolygonPrimitive, Position, Profile, QuadrantMode, Rectangular,
-    StepAndRepeat, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
+    StepAndRepeat, ThermalPrimitive, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
 };
 mod util;
 use gerber_parser::util::gerber_to_reader;
@@ -1865,6 +1865,56 @@ fn test_polygon_macro_and_aperture_definition() {
             ))),
             Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(
                 ApertureDefinition::new(10, Aperture::Macro("DIAMOND".to_string(), None))
+            ))),
+        ]
+    );
+}
+
+// See gerber spec 2021-02, section 4.5
+#[test]
+fn test_thermal_macro_and_aperture_definition() {
+    // given
+    let reader = gerber_to_reader(
+        r#"
+    %FSLAX36Y36*%
+    %MOMM*%
+    %AMTHERMAL80*
+    7,0,0.5,0.800,0.550,0.125,45*%
+    %ADD19THERMAL80*%
+    M02*
+    "#,
+    );
+
+    // Note, it's important that the macro definition isn't the only command in the file because it's important that
+    // the macro parser finds the end of the macro definition correctly and that it doesn't consume additional lines.
+
+    let expected_macro: ApertureMacro = ApertureMacro {
+        name: "THERMAL80".to_string(),
+        content: vec![MacroContent::Thermal(ThermalPrimitive {
+            center: (MacroDecimal::Value(0.0), MacroDecimal::Value(0.5)),
+            outer_diameter: MacroDecimal::Value(0.8),
+            inner_diameter: MacroDecimal::Value(0.55),
+            gap: MacroDecimal::Value(0.125),
+            angle: MacroDecimal::Value(45.0),
+        })],
+    };
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_)))
+    ));
+
+    // then
+    assert_eq_commands!(
+        filtered_commands,
+        vec![
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(
+                expected_macro
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(
+                ApertureDefinition::new(19, Aperture::Macro("THERMAL80".to_string(), None))
             ))),
         ]
     );

@@ -14,7 +14,7 @@ use crate::ParseError;
 use gerber_types::{
     ApertureBlock, ComponentCharacteristics, ComponentMounting, CopperType, DrillRouteType,
     ExtendedPosition, GenerationSoftware, GerberDate, Ident, NonPlatedDrill, ObjectAttribute,
-    PlatedDrill, Position, Profile, Uuid, VariableDefinition,
+    PlatedDrill, Position, Profile, ThermalPrimitive, Uuid, VariableDefinition,
 };
 use lazy_regex::*;
 use regex::Regex;
@@ -671,6 +671,51 @@ fn parse_aperture_macro_definition<T: Read>(
 
                     content.push(MacroContent::Polygon(polygon_primitive));
                 }
+                Ok(7) => {
+                    // Thermal primitive
+
+                    let param_count_excluding_code = params.len() - 1;
+
+                    if param_count_excluding_code != 6 {
+                        // center x + center y + outer diameter + inner diameter + gap + rotation
+                        return Err(ContentError::InvalidMacroDefinition(
+                            "Expected 6 parameters for thermal".to_string(),
+                        ));
+                    }
+
+                    // reverse the params, so we can pop them one at a time.
+                    params.reverse();
+                    let _primitive_code = params.pop();
+
+                    let center_x_str = params.pop().unwrap().trim().to_string();
+                    let center_x = parse_macro_decimal(&center_x_str)?;
+
+                    let center_y_str = params.pop().unwrap().trim().to_string();
+                    let center_y = parse_macro_decimal(&center_y_str)?;
+
+                    let outer_diameter_str = params.pop().unwrap().trim().to_string();
+                    let outer_diameter = parse_macro_decimal(&outer_diameter_str)?;
+
+                    let inner_diameter_str = params.pop().unwrap().trim().to_string();
+                    let inner_diameter = parse_macro_decimal(&inner_diameter_str)?;
+
+                    let gap_str = params.pop().unwrap().trim().to_string();
+                    let gap = parse_macro_decimal(&gap_str)?;
+
+                    let angle_str = params.pop().unwrap().trim().to_string();
+                    let angle = parse_macro_decimal(&angle_str)?;
+
+                    let thermal_primitive = ThermalPrimitive {
+                        center: (center_x, center_y),
+                        outer_diameter,
+                        inner_diameter,
+                        gap,
+                        angle,
+                    };
+
+                    content.push(MacroContent::Thermal(thermal_primitive));
+                }
+
                 Ok(20) => {
                     // Vector-line primitive
                     let param_count_excluding_code = params.len() - 1;
