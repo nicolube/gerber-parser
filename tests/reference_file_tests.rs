@@ -5,7 +5,9 @@ use gerber_parser::util::{gerber_doc_as_str, gerber_to_reader};
 /// downloaded from https://www.ucamco.com/en/gerber/downloads on 20220628
 ///
 /// Some files have some slight edits made to ensure the gbr -> rust -> gbr works
-/// But these are ones that do not change the meaning of the file.
+/// correctly. The changes do not change the meaning of the file.
+/// The edited files are in the `edited` folder so they can be compared to the originals.
+/// For example, when gerber-types serializes decimals (not co-ordinates), trailing 0's are removed.
 
 #[test]
 fn two_square_boxes_to_rust() {
@@ -37,13 +39,9 @@ fn polarities_and_apertures_to_rust() {
     parse(reader).unwrap();
 }
 
-// Remaining issues:
-// 1. Trailing/Leading zeros not retained
-#[ignore]
 #[test]
-
 fn polarities_and_apertures_to_rust_and_back() {
-    let gbr_string = include_str!("../assets/reference_files/polarities_and_apertures.gbr");
+    let gbr_string = include_str!("../assets/reference_files/edited/polarities_and_apertures.gbr");
     let reader = gerber_to_reader(gbr_string);
     let doc = parse(reader).unwrap();
 
@@ -58,18 +56,14 @@ fn polarities_and_apertures_to_rust_and_back() {
 #[test]
 // unmodified reference file, purely to check for panics
 fn a_drill_file_to_rust() {
-    let gbr_string = "   
-    ";
+    let gbr_string = include_str!("../assets/reference_files/drill_file.gbr");
     let reader = gerber_to_reader(gbr_string);
     parse(reader).unwrap();
 }
 
-// Remaining issues:
-// 1. Trailing/Leading zeros not retained
 #[test]
-#[ignore]
 fn a_drill_file_to_rust_and_back() {
-    let gbr_string = include_str!("../assets/reference_files/drill_file.gbr");
+    let gbr_string = include_str!("../assets/reference_files/edited/drill_file.gbr");
     let reader = gerber_to_reader(gbr_string);
     let doc = parse(reader).unwrap();
 
