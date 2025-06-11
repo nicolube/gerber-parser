@@ -442,37 +442,55 @@ fn parse_aperture_macro_definition<T: Read>(
     parser_context: &mut ParserContext<T>,
 ) -> Result<ApertureMacro, ContentError> {
     // Extract the macro name from the AM command
-    let re_macro = Regex::new(r"%AM([^*%]*)").unwrap();
-    let macro_name = re_macro
-        .captures(first_line)
-        .and_then(|cap| cap.get(1))
+    let re_macro = Regex::new(r"%AM(?P<name>[^*%]*)\*(?P<remainder>.*)").unwrap();
+    let captures = re_macro.captures(first_line);
+
+    let macro_name = captures
+        .as_ref()
+        .and_then(|cap| cap.name("name"))
         .map(|m| m.as_str().trim())
         .ok_or(ContentError::InvalidMacroName)?
         .to_string();
 
-    let mut content = Vec::new();
+    let remainder = captures
+        .and_then(|cap| cap.name("remainder"))
+        .map(|m| m.as_str().trim())
+        .unwrap();
 
-    // Read and parse the macro content lines until we find the end marker ("%")
-    while let Some(line_result) = parser_context.next() {
-        let line = line_result?.trim().to_string();
+    #[derive(Debug, Default)]
+    struct LineState {
+        is_last_line: bool,
+        has_continuation_line: bool,
+    }
+
+    fn update_line_state(line_state: &mut LineState, line: &str) {
+        if line.ends_with("*%") || line.ends_with("%") {
+            line_state.is_last_line = true;
+            line_state.has_continuation_line = false;
+        } else {
+            line_state.is_last_line = false;
+            line_state.has_continuation_line = !line.ends_with("*");
+        }
+    }
+
+    let mut line_state = LineState::default();
+    let mut line = remainder.to_string();
+
+    let mut content = Vec::new();
+    let mut first_line = true;
+
+    loop {
+        if first_line {
+            first_line = false;
+        } else {
+            let Some(line_result) = parser_context.next() else {
+                break;
+            };
+            line = line_result?.trim().to_string();
+        }
+
         if line.is_empty() {
             continue;
-        }
-
-        #[derive(Debug)]
-        struct LineState {
-            is_last_line: bool,
-            has_continuation_line: bool,
-        }
-
-        fn update_line_state(line_state: &mut LineState, line: &str) {
-            if line.ends_with("*%") || line.ends_with("%") {
-                line_state.is_last_line = true;
-                line_state.has_continuation_line = false;
-            } else {
-                line_state.is_last_line = false;
-                line_state.has_continuation_line = !line.ends_with("*");
-            }
         }
 
         fn trim_line(line: &str) -> &str {
@@ -502,11 +520,6 @@ fn parse_aperture_macro_definition<T: Read>(
 
             Ok(())
         }
-
-        let mut line_state = LineState {
-            is_last_line: false,
-            has_continuation_line: false,
-        };
 
         update_line_state(&mut line_state, &line);
 

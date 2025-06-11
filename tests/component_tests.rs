@@ -2629,3 +2629,79 @@ fn test_aperture_block() {
         ]
     );
 }
+
+/// LibrePCB generates some macro definitions on a single-line.
+#[test]
+fn librepcb_single_line_macro() {
+    // given
+    let reader = utils::gerber_to_reader(
+        r#"
+        G04 --- HEADER BEGIN --- *
+        G04 #@! TF.GenerationSoftware,LibrePCB,LibrePCB,0.1.2*
+        G04 #@! TF.CreationDate,2019-01-02T03:04:05*
+        G04 #@! TF.ProjectId,test_project,7c04f9d5-7366-4c4b-9e17-852ed57b3966,v1*
+        G04 #@! TF.Part,Single*
+        G04 #@! TF.SameCoordinates*
+        G04 #@! TF.FileFunction,Copper,L2,Bot*
+        G04 #@! TF.FilePolarity,Positive*
+        %FSLAX66Y66*%
+        %MOMM*%
+        G01*
+        G75*
+        G04 --- HEADER END --- *
+        G04 --- APERTURE LIST BEGIN --- *
+        G04 #@! TA.AperFunction,ComponentPad*
+        %AMOUTLINE10*4,1,2,-0.746681,-0.498916,-0.829667,-0.34366,-0.746681,-0.498916,100.0*%
+        %ADD10OUTLINE10*%
+        G04 #@! TA.AperFunction,FiducialPad,Local*
+
+        G04 --- BOARD END --- *
+
+        M02*
+    "#,
+    );
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(_)))
+    ));
+
+    // then
+    assert_eq_commands!(
+        &filtered_commands,
+        &vec![
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(
+                ApertureMacro {
+                    name: "OUTLINE10".to_string(),
+                    content: vec![MacroContent::Outline(OutlinePrimitive {
+                        exposure: MacroBoolean::Value(true),
+                        points: vec![
+                            (
+                                MacroDecimal::Value(-0.746681),
+                                MacroDecimal::Value(-0.498916)
+                            ),
+                            (
+                                MacroDecimal::Value(-0.829667),
+                                MacroDecimal::Value(-0.34366)
+                            ),
+                            (
+                                MacroDecimal::Value(-0.746681),
+                                MacroDecimal::Value(-0.498916)
+                            )
+                        ],
+                        angle: MacroDecimal::Value(100.0)
+                    })]
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(
+                ApertureDefinition {
+                    code: 10,
+                    aperture: Aperture::Macro("OUTLINE10".to_string(), None)
+                }
+            )))
+        ]
+    );
+    assert!(!filtered_commands.is_empty());
+}
