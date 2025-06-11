@@ -6,11 +6,12 @@ use gerber_parser::{
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureBlock, ApertureDefinition, ApertureFunction,
     ApertureMacro, Circle, CirclePrimitive, Command, ComponentCharacteristics, ComponentMounting,
-    CoordinateFormat, CoordinateOffset, Coordinates, DCode, ExtendedCode, FileAttribute,
-    FileFunction, FilePolarity, FunctionCode, GCode, InterpolationMode, MCode, MacroBoolean,
-    MacroContent, MacroDecimal, MacroInteger, ObjectAttribute, Operation, OutlinePrimitive, Part,
-    Polygon, PolygonPrimitive, QuadrantMode, Rectangular, StepAndRepeat, Unit, VariableDefinition,
-    VectorLinePrimitive,
+    CoordinateFormat, CoordinateOffset, Coordinates, CopperType, DCode, DrillRouteType,
+    ExtendedCode, ExtendedPosition, FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode,
+    GenerationSoftware, GerberDate, Ident, InterpolationMode, MCode, MacroBoolean, MacroContent,
+    MacroDecimal, MacroInteger, NonPlatedDrill, ObjectAttribute, Operation, OutlinePrimitive, Part,
+    PlatedDrill, Polygon, PolygonPrimitive, Position, Profile, QuadrantMode, Rectangular,
+    StepAndRepeat, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
 };
 
 mod utils;
@@ -21,6 +22,7 @@ mod utils;
 macro_rules! parse_and_filter {
     ($reader:ident, $commands:ident, $filtered_commands:ident, $c:expr) => {
         let $commands = parse($reader).unwrap().commands;
+        println!("parsed commands:");
         dump_commands(&$commands);
 
         // then
@@ -28,6 +30,7 @@ macro_rules! parse_and_filter {
             cmds.into_iter().filter($c).collect()};
 
         let $filtered_commands = filter_commands($commands);
+        println!("filtered commands:");
         dump_commands(&$filtered_commands);
 
     };
@@ -947,10 +950,11 @@ fn TO_attributes() {
     )
 }
 
-// TODO: make more exhaustive
 #[test]
 #[allow(non_snake_case)]
 fn TF_file_attributes() {
+    env_logger::init();
+
     let reader = utils::gerber_to_reader(
         "
     %FSLAX23Y23*%
@@ -958,14 +962,507 @@ fn TF_file_attributes() {
 
     %ADD999C, 0.01*%
 
-    %TF.Part, Array*%
-    %TF.Part, Other, funnypartname*%
-    %TF.FileFunction, Other,test part*%
-    %TF.FilePolarity, Negative*%
+    G04 Part*
 
-    M02*        
+    %TF.Part,Single*%
+    %TF.Part,Array*%
+    %TF.Part,FabricationPanel*%
+    %TF.Part,Coupon*%
+    %TF.Part,Other,Value 1*%
+
+    G04 Data Layers*
+
+    %TF.FileFunction,Copper,L1,Top*%
+    %TF.FileFunction,Copper,L2,Inr*%
+    %TF.FileFunction,Copper,L3,Inr*%
+    %TF.FileFunction,Copper,L4,Bot*%
+    %TF.FileFunction,Copper,L1,Top,Signal*%
+    %TF.FileFunction,Copper,L2,Inr,Plane*%
+    %TF.FileFunction,Copper,L3,Inr,Mixed*%
+    %TF.FileFunction,Copper,L4,Bot,Hatched*%
+
+    %TF.FileFunction,Plated,1,2,PTH*%
+    %TF.FileFunction,Plated,1,6,PTH,Drill*%
+    %TF.FileFunction,Plated,1,6,PTH,Rout*%
+    %TF.FileFunction,Plated,1,6,PTH,Mixed*%
+    %TF.FileFunction,Plated,1,2,Blind,Drill*%
+    %TF.FileFunction,Plated,3,4,Buried,Drill*%
+
+    %TF.FileFunction,NonPlated,1,2,NPTH*%
+    %TF.FileFunction,NonPlated,1,6,NPTH,Drill*%
+    %TF.FileFunction,NonPlated,1,6,NPTH,Rout*%
+    %TF.FileFunction,NonPlated,1,6,NPTH,Mixed*%
+    %TF.FileFunction,NonPlated,1,2,Blind,Drill*%
+    %TF.FileFunction,NonPlated,3,4,Buried,Drill*%
+
+    G04 Profile without a `P` or `NP` is off-spec, but this what DipTrace 4.3.0.6 generates*
+    %TF.FileFunction,Profile*%
+    %TF.FileFunction,Profile,P*%
+    %TF.FileFunction,Profile,NP*%
+
+    %TF.FileFunction,Soldermask,Top*%
+    %TF.FileFunction,Soldermask,Bot*%
+    %TF.FileFunction,Soldermask,Top,1*%
+    %TF.FileFunction,Soldermask,Bot,2*%
+
+    %TF.FileFunction,Legend,Top*%
+    %TF.FileFunction,Legend,Bot*%
+    %TF.FileFunction,Legend,Top,1*%
+    %TF.FileFunction,Legend,Bot,2*%
+
+    %TF.FileFunction,Component,L1,Top*%
+    %TF.FileFunction,Component,L2,Bot*%
+
+    %TF.FileFunction,Paste,Top*%
+    %TF.FileFunction,Paste,Bot*%
+
+    %TF.FileFunction,Glue,Top*%
+    %TF.FileFunction,Glue,Bot*%
+
+    %TF.FileFunction,Carbonmask,Top*%
+    %TF.FileFunction,Carbonmask,Bot*%
+    %TF.FileFunction,Carbonmask,Top,1*%
+    %TF.FileFunction,Carbonmask,Bot,2*%
+
+    %TF.FileFunction,Goldmask,Top*%
+    %TF.FileFunction,Goldmask,Bot*%
+    %TF.FileFunction,Goldmask,Top,1*%
+    %TF.FileFunction,Goldmask,Bot,2*%
+
+    %TF.FileFunction,Heatsinkmask,Top*%
+    %TF.FileFunction,Heatsinkmask,Bot*%
+    %TF.FileFunction,Heatsinkmask,Top,1*%
+    %TF.FileFunction,Heatsinkmask,Bot,2*%
+
+    %TF.FileFunction,Peelablemask,Top*%
+    %TF.FileFunction,Peelablemask,Bot*%
+    %TF.FileFunction,Peelablemask,Top,1*%
+    %TF.FileFunction,Peelablemask,Bot,2*%
+
+    %TF.FileFunction,Silvermask,Top*%
+    %TF.FileFunction,Silvermask,Bot*%
+    %TF.FileFunction,Silvermask,Top,1*%
+    %TF.FileFunction,Silvermask,Bot,2*%
+
+    %TF.FileFunction,Tinmask,Top*%
+    %TF.FileFunction,Tinmask,Bot*%
+    %TF.FileFunction,Tinmask,Top,1*%
+    %TF.FileFunction,Tinmask,Bot,2*%
+
+    %TF.FileFunction,Depthrout,Top*%
+    %TF.FileFunction,Depthrout,Bot*%
+
+    %TF.FileFunction,Vcut*%
+    %TF.FileFunction,Vcut,Top*%
+    %TF.FileFunction,Vcut,Bot*%
+
+    %TF.FileFunction,Viafill*%
+
+    %TF.FileFunction,Pads,Top*%
+    %TF.FileFunction,Pads,Bot*%
+
+    %TF.FileFunction,Other,Value 1*%
+
+    G04 Drawing layers*
+
+    %TF.FileFunction,Drillmap*%
+    %TF.FileFunction,FabricationDrawing*%
+    %TF.FileFunction,Vcutmap*%
+    %TF.FileFunction,AssemblyDrawing,Top*%
+    %TF.FileFunction,AssemblyDrawing,Bot*%
+    %TF.FileFunction,ArrayDrawing*%
+    %TF.FileFunction,OtherDrawing,Value 1*%
+
+    G04 File Polarity*
+
+    %TF.FilePolarity,Positive*%
+    %TF.FilePolarity,Negative*%
+
+    G04 Same Coordinates*
+
+    %TF.SameCoordinates*%
+    %TF.SameCoordinates,ident*%
+    %TF.SameCoordinates,ffffffff-ffff-ffff-ffff-ffffffffffff*%
+
+    G04 Creation Date*
+
+    %TF.CreationDate,2015-02-23T15:59:51+01:00*%
+
+    G04 Generation software*
+
+    %TF.GenerationSoftware,MakerPnP,gerber-types*%
+    %TF.GenerationSoftware,MakerPnP,gerber-types,0.4.0*%
+
+    G04 Project Id.*
+
+    %TF.ProjectId,My PCB,ffffffff-ffff-ffff-ffff-ffffffffffff,2.0*%
+
+    G04 MD5*
+
+    %TF.MD5,6ab9e892830469cdff7e3e346331d404*%
+
+    M02*
     ",
     );
+
+    macro_rules! ff_with_side_and_optional_index {
+        ($name:ident) => {
+            vec![
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name {
+                        pos: Position::Top,
+                        index: None,
+                    }),
+                ))),
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name {
+                        pos: Position::Bottom,
+                        index: None,
+                    }),
+                ))),
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name {
+                        pos: Position::Top,
+                        index: Some(1),
+                    }),
+                ))),
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name {
+                        pos: Position::Bottom,
+                        index: Some(2),
+                    }),
+                ))),
+            ]
+        };
+    }
+
+    macro_rules! ff_with_side_and_layer {
+        ($name:ident) => {
+            vec![
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name {
+                        pos: Position::Top,
+                        layer: 1,
+                    }),
+                ))),
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name {
+                        pos: Position::Bottom,
+                        layer: 2,
+                    }),
+                ))),
+            ]
+        };
+    }
+
+    macro_rules! ff_with_side {
+        ($name:ident) => {
+            vec![
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name(Position::Top)),
+                ))),
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name(Position::Bottom)),
+                ))),
+            ]
+        };
+    }
+
+    macro_rules! ff_with_optional_side {
+        ($name:ident) => {
+            vec![
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name(None)),
+                ))),
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name(Some(Position::Top))),
+                ))),
+                Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::$name(Some(Position::Bottom))),
+                ))),
+            ]
+        };
+    }
+
+    macro_rules! ff_without_args {
+        ($name:ident) => {
+            vec![Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                FileAttribute::FileFunction(FileFunction::$name),
+            )))]
+        };
+    }
+
+    macro_rules! ff_with_string {
+        ($name:ident, $str:expr) => {
+            vec![Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                FileAttribute::FileFunction(FileFunction::$name($str.to_string())),
+            )))]
+        };
+    }
+
+    // and
+    let mut expected_commands = vec![
+        // Part
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::Part(Part::Single),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::Part(Part::Array),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::Part(Part::FabricationPanel),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::Part(Part::Coupon),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::Part(Part::Other("Value 1".to_string())),
+        ))),
+        // File Function
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Copper {
+                layer: 1,
+                pos: ExtendedPosition::Top,
+                copper_type: None,
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Copper {
+                layer: 2,
+                pos: ExtendedPosition::Inner,
+                copper_type: None,
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Copper {
+                layer: 3,
+                pos: ExtendedPosition::Inner,
+                copper_type: None,
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Copper {
+                layer: 4,
+                pos: ExtendedPosition::Bottom,
+                copper_type: None,
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Copper {
+                layer: 1,
+                pos: ExtendedPosition::Top,
+                copper_type: Some(CopperType::Signal),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Copper {
+                layer: 2,
+                pos: ExtendedPosition::Inner,
+                copper_type: Some(CopperType::Plane),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Copper {
+                layer: 3,
+                pos: ExtendedPosition::Inner,
+                copper_type: Some(CopperType::Mixed),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Copper {
+                layer: 4,
+                pos: ExtendedPosition::Bottom,
+                copper_type: Some(CopperType::Hatched),
+            }),
+        ))),
+        // Plated
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Plated {
+                from_layer: 1,
+                to_layer: 2,
+                drill: PlatedDrill::PlatedThroughHole,
+                label: None,
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Plated {
+                from_layer: 1,
+                to_layer: 6,
+                drill: PlatedDrill::PlatedThroughHole,
+                label: Some(DrillRouteType::Drill),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Plated {
+                from_layer: 1,
+                to_layer: 6,
+                drill: PlatedDrill::PlatedThroughHole,
+                label: Some(DrillRouteType::Route),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Plated {
+                from_layer: 1,
+                to_layer: 6,
+                drill: PlatedDrill::PlatedThroughHole,
+                label: Some(DrillRouteType::Mixed),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Plated {
+                from_layer: 1,
+                to_layer: 2,
+                drill: PlatedDrill::Blind,
+                label: Some(DrillRouteType::Drill),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Plated {
+                from_layer: 3,
+                to_layer: 4,
+                drill: PlatedDrill::Buried,
+                label: Some(DrillRouteType::Drill),
+            }),
+        ))),
+        // Non-Plated
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::NonPlated {
+                from_layer: 1,
+                to_layer: 2,
+                drill: NonPlatedDrill::NonPlatedThroughHole,
+                label: None,
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::NonPlated {
+                from_layer: 1,
+                to_layer: 6,
+                drill: NonPlatedDrill::NonPlatedThroughHole,
+                label: Some(DrillRouteType::Drill),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::NonPlated {
+                from_layer: 1,
+                to_layer: 6,
+                drill: NonPlatedDrill::NonPlatedThroughHole,
+                label: Some(DrillRouteType::Route),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::NonPlated {
+                from_layer: 1,
+                to_layer: 6,
+                drill: NonPlatedDrill::NonPlatedThroughHole,
+                label: Some(DrillRouteType::Mixed),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::NonPlated {
+                from_layer: 1,
+                to_layer: 2,
+                drill: NonPlatedDrill::Blind,
+                label: Some(DrillRouteType::Drill),
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::NonPlated {
+                from_layer: 3,
+                to_layer: 4,
+                drill: NonPlatedDrill::Buried,
+                label: Some(DrillRouteType::Drill),
+            }),
+        ))),
+        // Profile
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Profile(None)),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Profile(Some(Profile::Plated))),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FileFunction(FileFunction::Profile(Some(Profile::NonPlated))),
+        ))),
+    ];
+
+    expected_commands.extend(ff_with_side_and_optional_index!(SolderMask));
+    expected_commands.extend(ff_with_side_and_optional_index!(Legend));
+    expected_commands.extend(ff_with_side_and_layer!(Component));
+    expected_commands.extend(ff_with_side!(Paste));
+    expected_commands.extend(ff_with_side!(Glue));
+    expected_commands.extend(ff_with_side_and_optional_index!(CarbonMask));
+    expected_commands.extend(ff_with_side_and_optional_index!(GoldMask));
+    expected_commands.extend(ff_with_side_and_optional_index!(HeatsinkMask));
+    expected_commands.extend(ff_with_side_and_optional_index!(PeelableMask));
+    expected_commands.extend(ff_with_side_and_optional_index!(SilverMask));
+    expected_commands.extend(ff_with_side_and_optional_index!(TinMask));
+    expected_commands.extend(ff_with_side!(DepthRoute));
+    expected_commands.extend(ff_with_optional_side!(VCut));
+    expected_commands.extend(ff_without_args!(ViaFill));
+    expected_commands.extend(ff_with_side!(Pads));
+    expected_commands.extend(ff_with_string!(Other, "Value 1"));
+
+    expected_commands.extend(ff_without_args!(DrillMap));
+    expected_commands.extend(ff_without_args!(FabricationDrawing));
+    expected_commands.extend(ff_without_args!(VCutMap));
+    expected_commands.extend(ff_with_side!(AssemblyDrawing));
+    expected_commands.extend(ff_without_args!(ArrayDrawing));
+    expected_commands.extend(ff_with_string!(OtherDrawing, "Value 1"));
+
+    expected_commands.extend(vec![
+        // Polarity
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FilePolarity(FilePolarity::Positive),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::FilePolarity(FilePolarity::Negative),
+        ))),
+        // Same coordinates
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::SameCoordinates(None),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::SameCoordinates(Some(Ident::Name("ident".to_string()))),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::SameCoordinates(Some(Ident::Uuid(Uuid::max()))),
+        ))),
+        // Creation date
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::CreationDate(
+                GerberDate::parse_from_rfc3339("2015-02-23T15:59:51+01:00").unwrap(),
+            ),
+        ))),
+        // Generation software
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::GenerationSoftware(GenerationSoftware {
+                vendor: "MakerPnP".to_string(),
+                application: "gerber-types".to_string(),
+                version: None,
+            }),
+        ))),
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::GenerationSoftware(GenerationSoftware {
+                vendor: "MakerPnP".to_string(),
+                application: "gerber-types".to_string(),
+                version: Some("0.4.0".to_string()),
+            }),
+        ))),
+        // Project Id
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::ProjectId {
+                id: "My PCB".to_string(),
+                uuid: Uuid::max(),
+                revision: "2.0".to_string(),
+            },
+        ))),
+        // Project Id
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::Md5("6ab9e892830469cdff7e3e346331d404".to_string()),
+        ))),
+    ]);
+    println!("expected_commands:");
+    dump_commands(&expected_commands);
 
     // when
     parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
@@ -974,23 +1471,7 @@ fn TF_file_attributes() {
     ));
 
     // then
-    assert_eq!(
-        filtered_commands,
-        vec![
-            Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
-                FileAttribute::Part(Part::Array)
-            ))),
-            Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
-                FileAttribute::Part(Part::Other("funnypartname".to_string()))
-            ))),
-            Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
-                FileAttribute::FileFunction(FileFunction::Other("test part".to_string()))
-            ))),
-            Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
-                FileAttribute::FilePolarity(FilePolarity::Negative)
-            ))),
-        ]
-    )
+    assert_eq!(filtered_commands, expected_commands,)
 }
 
 // #[test]

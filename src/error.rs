@@ -53,6 +53,8 @@ pub enum ContentError {
     ParseIntegerError { cause: ParseIntError },
     #[error("Error parsing string as a decimal, cause: '{cause}'.")]
     ParseDecimalError { cause: ParseFloatError },
+    #[error("Invalid layer parameter. expected format: `L<integer>`. found: '{0}'.")]
+    InvalidLayerParameter(String),
     #[error("tried to parse '{aperture_code_str}' as an aperture code (integer) greater than 9 but failed.")]
     ApertureCodeParseFailed { aperture_code_str: String },
     #[error("tried to parse '{aperture_definition_str}' as an aperture definition but failed.")]
@@ -114,6 +116,12 @@ pub enum ContentError {
         aperture_code: i32,
         aperture_name: String,
     },
+    #[error("Insufficient arguments.")]
+    InsufficientArguments,
+    #[error("Invalid date time format: '{0}', expected RFC3339 format: 'YYYY-MM-DDTHH:MM:SSZ'")]
+    InvalidDateTime(String),
+    #[error("Invalid UUID: '{0}'")]
+    InvalidUuid(String),
 }
 
 impl ContentError {

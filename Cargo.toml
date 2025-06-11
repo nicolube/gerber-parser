@@ -17,7 +17,8 @@ repository = "https://github.com/MakerPnP/gerber-parser"
 [dependencies]
 # currently un-released, using latest gerber_types with updates to support macro expressions
 #gerber_types = "0.4.0"
-gerber_types = { git = "https://github.com/MakerPnP/gerber-types.git", rev = "e5b037155964d94526993c38675ba1b191987fa9"}
+gerber_types = { git = "https://github.com/MakerPnP/gerber-types.git", rev = "aeac3cec5a2401fbaf2e6651a74888de4a7e2c0b"}
+#gerber_types = { path = "../gerber-types" }
 
 # errors
 thiserror = "2.0.12"
@@ -32,3 +33,4 @@ log = "0.4.27"
 
 [dev-dependencies]
 stringreader = "0.1.1"
+env_logger = "0.11.8"
