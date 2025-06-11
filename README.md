@@ -24,11 +24,8 @@ Recently support has been added for the files that DipTrace, KiCad, etc.
 
 Currently missing:
 
-* `LM`, `LR`, `LS`, `IP` commands (note: these are deprecated in the spec)
-
-Partial:
-
-* The `TF` and `TA` commands only support a limited range of arguments; custom attributes will result in an error
+* `LM`, `LR`, `LS` commands.
+* `IP` command (note: this is deprecated in the spec)
 
 ## Related crates
 
