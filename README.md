@@ -20,7 +20,7 @@ The gerber specification 2024.05 is the latest version of the Gerber file format
 The original author used f360, the initial implementation was written to support files it generated.
 Recently support has been added for the files that DipTrace, KiCad, etc.
 
-⚠️ Note: this package is still in development and does not cover the full Gerber spec
+⚠️ Note: this package is still in development and does not cover the full Gerber spec, contributions welcomed!
 
 Currently missing:
 
