@@ -14,8 +14,8 @@ use gerber_types::{
     StepAndRepeat, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
 };
 mod util;
-use util::testing::logging_init;
 use gerber_parser::util::gerber_to_reader;
+use util::testing::logging_init;
 
 /// This macro is used extensively by the tests to parse, then filter commands based on the closure $c which takes
 /// a single `Command` as an argument, the closure should return 'true' to keep the command, false otherwise.
@@ -2708,7 +2708,7 @@ fn test_aperture_block() {
     );
 }
 
-/// LibrePCB generates some macro definitions on a single-line.
+/// LibrePCB generates macro definitions on a single-line.
 #[test]
 fn librepcb_single_line_macro() {
     // given
@@ -2716,24 +2716,15 @@ fn librepcb_single_line_macro() {
 
     let reader = gerber_to_reader(
         r#"
-        G04 --- HEADER BEGIN --- *
-        G04 #@! TF.GenerationSoftware,LibrePCB,LibrePCB,0.1.2*
-        G04 #@! TF.CreationDate,2019-01-02T03:04:05*
-        G04 #@! TF.ProjectId,test_project,7c04f9d5-7366-4c4b-9e17-852ed57b3966,v1*
-        G04 #@! TF.Part,Single*
-        G04 #@! TF.SameCoordinates*
-        G04 #@! TF.FileFunction,Copper,L2,Bot*
-        G04 #@! TF.FilePolarity,Positive*
         %FSLAX66Y66*%
         %MOMM*%
-        G01*
-        G75*
-        G04 --- HEADER END --- *
-        G04 --- APERTURE LIST BEGIN --- *
-        G04 #@! TA.AperFunction,ComponentPad*
+        G04 THIS HAS ONE PRIMITIVE *
         %AMOUTLINE10*4,1,2,-0.746681,-0.498916,-0.829667,-0.34366,-0.746681,-0.498916,100.0*%
         %ADD10OUTLINE10*%
-        G04 #@! TA.AperFunction,FiducialPad,Local*
+
+        G04 THIS HAS THREE PRIMITIVES *
+        %AMROTATEDOBROUND16*1,1,1.0,-0.433013,-0.25*1,1,1.0,0.433013,0.25*20,1,1.0,-0.433013,-0.25,0.433013,0.25,0*%
+        %ADD16ROTATEDOBROUND16*%
 
         G04 --- BOARD END --- *
 
@@ -2779,6 +2770,38 @@ fn librepcb_single_line_macro() {
                 ApertureDefinition {
                     code: 10,
                     aperture: Aperture::Macro("OUTLINE10".to_string(), None)
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureMacro(
+                ApertureMacro {
+                    name: "ROTATEDOBROUND16".to_string(),
+                    content: vec![
+                        MacroContent::Circle(CirclePrimitive {
+                            exposure: MacroBoolean::Value(true),
+                            diameter: MacroDecimal::Value(1.0),
+                            center: (MacroDecimal::Value(-0.433013), MacroDecimal::Value(-0.25)),
+                            angle: None
+                        }),
+                        MacroContent::Circle(CirclePrimitive {
+                            exposure: MacroBoolean::Value(true),
+                            diameter: MacroDecimal::Value(1.0),
+                            center: (MacroDecimal::Value(0.433013), MacroDecimal::Value(0.25)),
+                            angle: None
+                        }),
+                        MacroContent::VectorLine(VectorLinePrimitive {
+                            exposure: MacroBoolean::Value(true),
+                            width: MacroDecimal::Value(1.0),
+                            start: (MacroDecimal::Value(-0.433013), MacroDecimal::Value(-0.25)),
+                            end: (MacroDecimal::Value(0.433013), MacroDecimal::Value(0.25)),
+                            angle: MacroDecimal::Value(0.0)
+                        })
+                    ]
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ApertureDefinition(
+                ApertureDefinition {
+                    code: 16,
+                    aperture: Aperture::Macro("ROTATEDOBROUND16".to_string(), None)
                 }
             )))
         ]

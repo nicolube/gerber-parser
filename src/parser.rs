@@ -441,90 +441,40 @@ fn parse_aperture_macro_definition<T: Read>(
     first_line: &str,
     parser_context: &mut ParserContext<T>,
 ) -> Result<ApertureMacro, ContentError> {
+    let mut macro_content: String = String::from(first_line);
+    while !macro_content.ends_with("*%") {
+        let Some(line_result) = parser_context.next() else {
+            break;
+        };
+        let line = line_result?.trim().to_string();
+        macro_content.push_str(&line);
+    }
+
     // Extract the macro name from the AM command
-    let re_macro = Regex::new(r"%AM(?P<name>[^*%]*)\*(?P<remainder>.*)").unwrap();
-    let captures = re_macro.captures(first_line);
+    let re_macro = Regex::new(r"%AM(?P<name>[^*%]*)\*(?P<remainder>.*)\*%").unwrap();
+    let captures = re_macro
+        .captures(&macro_content)
+        .ok_or(ContentError::InvalidMacroDefinition(macro_content.clone()))?;
 
     let macro_name = captures
-        .as_ref()
-        .and_then(|cap| cap.name("name"))
+        .name("name")
         .map(|m| m.as_str().trim())
-        .ok_or(ContentError::InvalidMacroName)?
+        .unwrap()
         .to_string();
 
     let remainder = captures
-        .and_then(|cap| cap.name("remainder"))
+        .name("remainder")
         .map(|m| m.as_str().trim())
         .unwrap();
 
-    #[derive(Debug, Default)]
-    struct LineState {
-        is_last_line: bool,
-        has_continuation_line: bool,
-    }
-
-    fn update_line_state(line_state: &mut LineState, line: &str) {
-        if line.ends_with("*%") || line.ends_with("%") {
-            line_state.is_last_line = true;
-            line_state.has_continuation_line = false;
-        } else {
-            line_state.is_last_line = false;
-            line_state.has_continuation_line = !line.ends_with("*");
-        }
-    }
-
-    let mut line_state = LineState::default();
-    let mut line = remainder.to_string();
-
     let mut content = Vec::new();
-    let mut first_line = true;
 
-    loop {
-        if first_line {
-            first_line = false;
-        } else {
-            let Some(line_result) = parser_context.next() else {
-                break;
-            };
-            line = line_result?.trim().to_string();
-        }
+    let chunks = remainder.split('*');
 
-        if line.is_empty() {
-            continue;
-        }
+    log::trace!("macro chunks: {:?}", chunks);
 
-        fn trim_line(line: &str) -> &str {
-            line.trim_end_matches(['*', '%'])
-        }
-
-        fn read_params<T: Read>(
-            params: &mut Vec<String>,
-            parser_context: &mut ParserContext<T>,
-            line_state: &mut LineState,
-        ) -> Result<(), ContentError> {
-            // read all the parameters, which could be split over multiple lines
-            while line_state.has_continuation_line {
-                if let Some(continuation_line) = parser_context.next() {
-                    let continuation_line = continuation_line?;
-
-                    update_line_state(line_state, &continuation_line);
-
-                    let continuation_line = trim_line(&continuation_line);
-
-                    let extra_params = line_to_params(continuation_line);
-                    params.extend(extra_params);
-                } else {
-                    break;
-                }
-            }
-
-            Ok(())
-        }
-
-        update_line_state(&mut line_state, &line);
-
-        let trimmed_line = trim_line(&line);
-        if let Some(stripped) = trimmed_line.strip_prefix("0 ") {
+    for chunk in chunks {
+        if let Some(stripped) = chunk.strip_prefix("0 ") {
             // Handle the special-case comment primitive
 
             // Gerber spec: 4.5.1.2 "The comment primitive starts with the ‘0’ code followed by a space and then a
@@ -533,10 +483,10 @@ fn parse_aperture_macro_definition<T: Read>(
             continue;
         }
 
-        if trimmed_line.starts_with("$") {
+        if chunk.starts_with("$") {
             // Handle the special-case variable definition primitive
 
-            if let Some(captures) = RE_MACRO_VARIABLE.captures(trimmed_line) {
+            if let Some(captures) = RE_MACRO_VARIABLE.captures(chunk) {
                 let number = captures
                     .name("number")
                     .map(|number| number.as_str().parse::<u32>())
@@ -567,7 +517,7 @@ fn parse_aperture_macro_definition<T: Read>(
             continue;
         }
 
-        let mut params: Vec<String> = line_to_params(trimmed_line);
+        let mut params: Vec<String> = line_to_params(chunk);
 
         if !params.is_empty() {
             // Parse outline primitive (type 4)
@@ -575,7 +525,6 @@ fn parse_aperture_macro_definition<T: Read>(
             match params[0].parse::<u8>() {
                 Ok(1) => {
                     // Handle circle primitive
-                    read_params(&mut params, parser_context, &mut line_state)?;
                     let param_count_excluding_code = params.len() - 1;
 
                     if !(4..=5).contains(&param_count_excluding_code) {
@@ -618,7 +567,6 @@ fn parse_aperture_macro_definition<T: Read>(
                 }
                 Ok(4) => {
                     // Handle outline primitive
-                    read_params(&mut params, parser_context, &mut line_state)?;
                     let param_count_excluding_code = params.len() - 1;
 
                     if param_count_excluding_code < 6 {
@@ -638,7 +586,7 @@ fn parse_aperture_macro_definition<T: Read>(
                     let num_vertices =
                         params.pop().unwrap().trim().parse::<u32>().map_err(|_| {
                             ContentError::ApertureDefinitionParseFailed {
-                                aperture_definition_str: line.clone(),
+                                aperture_definition_str: chunk.to_string(),
                             }
                         })?;
 
@@ -678,7 +626,6 @@ fn parse_aperture_macro_definition<T: Read>(
                 }
                 Ok(5) => {
                     // Handle polygon primitive
-                    read_params(&mut params, parser_context, &mut line_state)?;
                     let param_count_excluding_code = params.len() - 1;
 
                     if !(5..=6).contains(&param_count_excluding_code) {
@@ -726,7 +673,6 @@ fn parse_aperture_macro_definition<T: Read>(
                 }
                 Ok(20) => {
                     // Vector-line primitive
-                    read_params(&mut params, parser_context, &mut line_state)?;
                     let param_count_excluding_code = params.len() - 1;
 
                     if !(6..=7).contains(&param_count_excluding_code) {
@@ -776,7 +722,6 @@ fn parse_aperture_macro_definition<T: Read>(
                 }
                 Ok(21) => {
                     // Center-line primitive
-                    read_params(&mut params, parser_context, &mut line_state)?;
                     let param_count_excluding_code = params.len() - 1;
 
                     if !(5..=6).contains(&param_count_excluding_code) {
@@ -821,21 +766,16 @@ fn parse_aperture_macro_definition<T: Read>(
                     content.push(MacroContent::CenterLine(center_line));
                 }
                 _ => {
-                    read_params(&mut params, parser_context, &mut line_state)?;
                     log::error!(
-                        "Unsupported primitive type: {}, line: {}, params: {}",
+                        "Unsupported primitive type: {}, chunk: {}, params: {}",
                         params[0],
-                        line,
+                        chunk,
                         params[1..].join(", ")
                     );
 
                     return Err(ContentError::UnsupportedMacroDefinition);
                 }
             }
-        }
-
-        if line_state.is_last_line {
-            break;
         }
     }
 
