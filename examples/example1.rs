@@ -17,7 +17,7 @@ pub fn main() -> anyhow::Result<()> {
     let gerber_doc = gerber_parser::parse(reader)
         .map_err(|(_doc, parse_error)| anyhow!("Error parsing file: {:?}", parse_error))?;
 
-    let commands: Vec<&Command> = gerber_doc.as_commands();
+    let commands: Vec<&Command> = gerber_doc.commands();
 
     // Now you can use the commands as you wish
     println!("Parsed document. command_count: {} ", commands.len());

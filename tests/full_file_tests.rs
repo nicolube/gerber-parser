@@ -50,9 +50,7 @@ M02*
     assert!(result.is_ok());
 
     let doc = result.unwrap();
-    doc.get_errors()
-        .iter()
-        .for_each(|x| println!("Error: {}", x));
+    doc.errors().iter().for_each(|x| println!("Error: {}", x));
 
     assert_eq!(gbr_string, gerber_doc_to_str(doc))
 }

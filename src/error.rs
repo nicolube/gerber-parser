@@ -9,7 +9,7 @@ pub enum ParseError {
     IoError(String),
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug)]
 pub enum ContentError {
     #[error("Document included a line that isn't valid.")]
     UnknownCommand {},
@@ -125,27 +125,9 @@ pub enum ContentError {
 }
 
 impl ContentError {
-    pub fn to_with_context(
-        self,
-        line: Option<String>,
-        line_num: Option<usize>,
-    ) -> GerberParserErrorWithContext {
-        GerberParserErrorWithContext {
-            error: self,
-            line,
-            line_num,
-        }
-    }
-    pub fn as_with_context(
-        &self,
-        line: Option<String>,
-        line_num: Option<usize>,
-    ) -> GerberParserErrorWithContext {
-        GerberParserErrorWithContext {
-            error: self.clone(),
-            line,
-            line_num,
-        }
+    /// line number is 1-based, for humans.
+    pub fn to_with_context(self, line: Option<(usize, String)>) -> GerberParserErrorWithContext {
+        GerberParserErrorWithContext { error: self, line }
     }
 }
 
@@ -158,16 +140,16 @@ impl PartialEq for ContentError {
 
 #[derive(Error, Debug, PartialEq)]
 pub struct GerberParserErrorWithContext {
-    error: ContentError,
-    line: Option<String>,
-    line_num: Option<usize>,
+    pub error: ContentError,
+    /// line number is 1-based, for humans.
+    pub line: Option<(usize, String)>,
 }
 
 impl std::fmt::Display for GerberParserErrorWithContext {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match (&self.line, &self.line_num) {
-            (Some(line), Some(line_num)) => {
-                write!(f, "Error: {}\nLine: '{}: {}'", self.error, line_num, line)
+        match &self.line {
+            Some((number, content)) => {
+                write!(f, "Error: {}\nLine {}: '{}'", self.error, number, content)
             }
             _ => {
                 write!(f, "Error at unspecified line: {}", self.error)

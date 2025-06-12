@@ -128,7 +128,7 @@ pub fn parse<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, (GerberDoc, Par
                     }
                     Err(error_without_context) => {
                         let contexted_error = error_without_context
-                            .to_with_context(Some(line.to_string()), Some(line_number));
+                            .to_with_context(Some((line_number, line.to_string())));
                         log::error!("Content error: {}", contexted_error);
                         Err(contexted_error)
                     }
@@ -141,11 +141,11 @@ pub fn parse<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, (GerberDoc, Par
     match gerber_doc.commands.last() {
         None => gerber_doc
             .commands
-            .push(Err(ContentError::NoEndOfFile.to_with_context(None, None))),
+            .push(Err(ContentError::NoEndOfFile.to_with_context(None))),
         Some(Ok(Command::FunctionCode(FunctionCode::MCode(MCode::EndOfFile)))) => {}
         _ => gerber_doc
             .commands
-            .push(Err(ContentError::NoEndOfFile.to_with_context(None, None))),
+            .push(Err(ContentError::NoEndOfFile.to_with_context(None))),
     }
 
     match parse_error {
@@ -1863,8 +1863,8 @@ pub fn partial_coordinates_from_gerber(
     // we have the raw gerber string as int but now have to convert it to nano precision format
     // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
     let factor = (6u8 - fs.decimal) as u32;
-    let x = x_as_int.map(|value| CoordinateNumber::new( value * 10i64.pow(factor)));
-    let y = y_as_int.map(|value| CoordinateNumber::new( value * 10i64.pow(factor)));
+    let x = x_as_int.map(|value| CoordinateNumber::new(value * 10i64.pow(factor)));
+    let y = y_as_int.map(|value| CoordinateNumber::new(value * 10i64.pow(factor)));
 
     Coordinates::new(x, y, fs)
 }

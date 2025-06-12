@@ -27,7 +27,7 @@ impl GerberDoc {
     /// Convert Self into a representation of a gerber document *purely* in terms of elements provided
     /// in the gerber-types rust crate.
     ///
-    /// This will ignore any errors encountered during parsing, to access errors, use `get_errors` first.
+    /// This will ignore any errors encountered during parsing, to access errors, use `errors` first.
     pub fn into_commands(self) -> Vec<Command> {
         self.commands
             .into_iter()
@@ -40,15 +40,23 @@ impl GerberDoc {
     ///
     /// Similar to `into_commands()`, but does not consume the Self, and returns references to Commands
     ///
-    /// This will ignore any errors encountered during parsing, to access errors, use `get_errors`.
-    pub fn as_commands(&self) -> Vec<&Command> {
+    /// This will ignore any errors encountered during parsing, to access errors, use `errors`.
+    pub fn commands(&self) -> Vec<&Command> {
         self.commands
             .iter()
             .filter_map(|element| element.as_ref().ok())
             .collect()
     }
 
-    pub fn get_errors(&self) -> Vec<&GerberParserErrorWithContext> {
+    pub fn into_errors(self) -> Vec<GerberParserErrorWithContext> {
+        self.commands
+            .into_iter()
+            .filter_map(|element| element.err())
+            .collect()
+    }
+
+    /// Similar to `into_errors()`, but does not consume the Self, and returns references to errors
+    pub fn errors(&self) -> Vec<&GerberParserErrorWithContext> {
         let mut error_vec: Vec<&GerberParserErrorWithContext> = Vec::new();
         for command in &self.commands {
             if let Err(error) = command {

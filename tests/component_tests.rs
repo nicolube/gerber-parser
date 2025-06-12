@@ -1575,7 +1575,7 @@ fn conflicting_aperture_codes() {
     ",
     );
     let doc = parse(reader).unwrap();
-    assert!(doc.get_errors().is_empty());
+    assert!(doc.errors().is_empty());
 }
 
 #[test]
@@ -1593,7 +1593,7 @@ fn missing_eof() {
     ",
     );
     let doc = parse(reader).unwrap();
-    assert!(doc.get_errors().is_empty());
+    assert!(doc.errors().is_empty());
 }
 
 #[test]
@@ -1613,7 +1613,7 @@ fn multiple_unit_statements() {
     ",
     );
     let doc = parse(reader).unwrap();
-    assert!(doc.get_errors().is_empty());
+    assert!(doc.errors().is_empty());
 }
 
 #[test]
@@ -1633,7 +1633,7 @@ fn multiple_fs_statements() {
     ",
     );
     let doc = parse(reader).unwrap();
-    assert!(doc.get_errors().is_empty());
+    assert!(doc.errors().is_empty());
 }
 
 #[test]
@@ -1656,7 +1656,7 @@ fn nonexistent_aperture_selection() {
     ",
     );
     let doc = parse(reader).unwrap();
-    assert!(doc.get_errors().is_empty());
+    assert!(doc.errors().is_empty());
 }
 
 /// This statement should fail as this is not within the format specification (2 integer, 3 decimal)
@@ -1682,7 +1682,7 @@ fn coordinates_not_within_format() {
     );
 
     let doc = parse(reader).unwrap();
-    assert!(doc.get_errors().is_empty());
+    assert!(doc.errors().is_empty());
 }
 
 /// Test the D* statements, diptrace exports gerber files without the leading `0` on the `D0*` commands.
