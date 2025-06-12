@@ -20,12 +20,34 @@ The gerber specification 2024.05 is the latest version of the Gerber file format
 The original author used f360, the initial implementation was written to support files it generated.
 Recently support has been added for the files that DipTrace, KiCad, etc.
 
-⚠️ Note: this package is still in development and does not cover the full Gerber spec, contributions welcomed!
+### Supported gerber features
 
-Currently missing:
+| Supported | Feature                          | Notes                                          |
+|----------|----------------------------------|------------------------------------------------|
+| ✅        | Comments (G04)                   |                                                |
+| ✅        | Units (MO)                       |                                                |
+| ✅        | Format specification (FS)        |                                                |
+| ✅        | Aperture definition (AD)         |                                                |
+| ✅        | Standard aperture templates      |                                                |
+| ✅        | Aperture macros (AM)             |                                                |
+| ✅        | Select aperture (Dnn)            |                                                |
+| ✅        | Plot state (G01, G02, G03, G75)  |                                                |
+| ✅        | Operations (D01, D02, D03)       |                                                |
+| ❌        | Transformations (LP, LM, LR, LS) | `LM`, `LR`, `LS` missing                       |
+| ✅        | Regions (G36/G37)                |                                                |
+| ✅        | Block aperture (AB)              |                                                |
+| ✅        | Step repeat (SR)                 |                                                |
+| ✅        | End-of-file (M02)                |                                                |
+| ✅        | File attributes (TF)             |                                                |
+| ✅        | Aperture attributes (TA)         |                                                |
+| ✅        | Object attributes (TO)           |                                                |
+| ✅        | Delete attribute (TD)            |                                                |
+| ✅        | Standard attributes              | Full support, including .N, .P, .C, .CXxxx, etc |
+| ✅        | User defined attributes          |                                                |
+| ❌        | Comment attributes               | See spec 2024.5 - 5.1.1, 'G04 #@! ...*         |
+| ✅         | Legacy/deprecated attributes    | Partial                                        |
 
-* `LM`, `LR`, `LS` commands.
-* `IP` command (note: this is deprecated in the spec)
+Contributions to improve support welcomed!
 
 ## Related crates
 
