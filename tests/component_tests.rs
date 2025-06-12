@@ -5,14 +5,15 @@ use gerber_parser::{
 use gerber_parser::{ContentError, GerberParserErrorWithContext};
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureBlock, ApertureDefinition, ApertureFunction,
-    ApertureMacro, Circle, CirclePrimitive, Command, ComponentCharacteristics, ComponentMounting,
-    CoordinateFormat, CoordinateOffset, Coordinates, CopperType, DCode, DrillRouteType,
-    ExtendedCode, ExtendedPosition, FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode,
-    GenerationSoftware, GerberDate, GerberError, Ident, InterpolationMode, MCode, MacroBoolean,
-    MacroContent, MacroDecimal, MacroInteger, NonPlatedDrill, ObjectAttribute, Operation,
-    OutlinePrimitive, Part, PlatedDrill, Polygon, PolygonPrimitive, Position, Profile,
-    QuadrantMode, Rectangular, StepAndRepeat, ThermalPrimitive, Unit, Uuid, VariableDefinition,
-    VectorLinePrimitive,
+    ApertureMacro, Circle, CirclePrimitive, Command, ComponentCharacteristics, ComponentDrill,
+    ComponentMounting, ComponentOutline, CoordinateFormat, CoordinateOffset, Coordinates,
+    CopperType, DCode, DrillFunction, DrillRouteType, ExtendedCode, ExtendedPosition,
+    FiducialScope, FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode,
+    GenerationSoftware, GerberDate, GerberError, IPC4761ViaProtection, Ident, InterpolationMode,
+    MCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger, NonPlatedDrill, ObjectAttribute,
+    Operation, OutlinePrimitive, Part, PlatedDrill, Polygon, PolygonPrimitive, Position, Profile,
+    QuadrantMode, Rectangular, SmdPadType, StepAndRepeat, ThermalPrimitive, Unit, Uuid,
+    VariableDefinition, VectorLinePrimitive,
 };
 mod util;
 use gerber_parser::util::gerber_to_reader;
@@ -710,7 +711,7 @@ fn aperture_definitions() {
     )
 }
 
-// TODO: make more exhaustive
+// 2024.05 - 5.6.10 ".AperFunction"
 #[test]
 #[allow(non_snake_case)]
 fn TA_aperture_attributes() {
@@ -718,18 +719,145 @@ fn TA_aperture_attributes() {
     logging_init();
 
     let reader = gerber_to_reader(
-        "
+        r#"
     %FSLAX23Y23*%
     %MOMM*%
 
-    %ADD999C, 0.01*%
-    %TA.AperFunction, WasherPad*%
+    G04 "Drill and rout layers"*
+
+    %TA.AperFunction,ViaDrill*%
+    %TA.AperFunction,ViaDrill,Ia*%
+    %TA.AperFunction,ViaDrill,Ib*%
+    %TA.AperFunction,ViaDrill,IIa*%
+    %TA.AperFunction,ViaDrill,IIb*%
+    %TA.AperFunction,ViaDrill,IIIa*%
+    %TA.AperFunction,ViaDrill,IIIb*%
+    %TA.AperFunction,ViaDrill,IVa*%
+    %TA.AperFunction,ViaDrill,IVb*%
+    %TA.AperFunction,ViaDrill,V*%
+    %TA.AperFunction,ViaDrill,VI*%
+    %TA.AperFunction,ViaDrill,VII*%
+    %TA.AperFunction,ViaDrill,None*%
+
+    %TA.AperFunction,BackDrill*%
+
+    %TA.AperFunction,ComponentDrill*%
+    %TA.AperFunction,ComponentDrill,PressFit*%
+
+    %TA.AperFunction,MechanicalDrill*%
+    %TA.AperFunction,MechanicalDrill,Tooling*%
+    %TA.AperFunction,MechanicalDrill,Breakout*%
+    %TA.AperFunction,MechanicalDrill,Other*%
+
+    %TA.AperFunction,CastellatedDrill*%
+
+    %TA.AperFunction,OtherDrill*%
+    %TA.AperFunction,OtherDrill,Value 1*%
+
+    G04 "Copper layers"*
+
+    %TA.AperFunction,ComponentPad*%
+
+    %TA.AperFunction,SMDPad,CuDef*%
+    %TA.AperFunction,SMDPad,SMDef*%
+
+    %TA.AperFunction,BGAPad,CuDef*%
+    %TA.AperFunction,BGAPad,SMDef*%
+
+    %TA.AperFunction,ConnectorPad*%
+
+    %TA.AperFunction,HeatsinkPad*%
+
+    %TA.AperFunction,ViaPad*%
+
+    %TA.AperFunction,TestPad*%
+
+    %TA.AperFunction,CastellatedPad*%
+
+    %TA.AperFunction,FiducialPad,Local*%
+    %TA.AperFunction,FiducialPad,Global*%
+    %TA.AperFunction,FiducialPad,Panel*%
+
+    %TA.AperFunction,ThermalReliefPad*%
+
+    %TA.AperFunction,WasherPad*%
+
+    %TA.AperFunction,AntiPad*%
+
+    %TA.AperFunction,OtherPad,Value 1*%
+
+    %TA.AperFunction,Conductor*%
+
+    %TA.AperFunction,EtchedComponent*%
+
+    %TA.AperFunction,NonConductor*%
+
+    %TA.AperFunction,CopperBalancing*%
+
+    %TA.AperFunction,Border*%
+
+    %TA.AperFunction,OtherCopper,Value 1*%
+
+    G04 "Component layers"*
+
+    %TA.AperFunction,ComponentMain*%
+
+    %TA.AperFunction,ComponentOutline,Body*%
+    %TA.AperFunction,ComponentOutline,Lead2Lead*%
+    %TA.AperFunction,ComponentOutline,Footprint*%
+    %TA.AperFunction,ComponentOutline,Courtyard*%
+
+    %TA.AperFunction,ComponentPin*%
+
+    G04 "All data layers"*
+
     %TA.AperFunction,Profile*%
-    %TA.AperFunction,   Other,   teststring*%
+
+    %TA.AperFunction,NonMaterial*%
+
+    %TA.AperFunction,Material*%
+
+    %TA.AperFunction,Other,Value 1*%
+
+    G04 "Deprecated"*
+    %TA.AperFunction,Slot*%
+    %TA.AperFunction,CutOut*%
+    %TA.AperFunction,Cavity*%
+    %TA.AperFunction,Drawing*%
 
     M02*        
-    ",
+    "#,
     );
+
+    macro_rules! af_without_args {
+        ($name:ident) => {
+            vec![Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
+                ApertureAttribute::ApertureFunction(ApertureFunction::$name),
+            )))]
+        };
+    }
+
+    macro_rules! af_with_ipc4761 {
+        ($name:ident) => {{
+            let mut result = vec![ApertureFunction::$name(None)];
+            result.extend(
+                IPC4761ViaProtection::values()
+                    .iter()
+                    .cloned()
+                    .map(|value| ApertureFunction::$name(Some(value)))
+                    .collect::<Vec<_>>(),
+            );
+
+            result
+                .into_iter()
+                .map(|it| {
+                    Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
+                        ApertureAttribute::ApertureFunction(it),
+                    )))
+                })
+                .collect::<Vec<_>>()
+        }};
+    }
 
     // when
     parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
@@ -737,23 +865,117 @@ fn TA_aperture_attributes() {
         Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(_)))
     ));
 
+    fn to_af_commands(
+        afs: Vec<ApertureFunction>,
+    ) -> Vec<Result<Command, GerberParserErrorWithContext>> {
+        afs.into_iter()
+            .map(|it| {
+                Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
+                    ApertureAttribute::ApertureFunction(it),
+                )))
+            })
+            .collect()
+    }
+
+    let mut expected_commands: Vec<_> = vec![];
+
+    //
+    // "Drill and rout layers"
+    //
+    expected_commands.extend(af_with_ipc4761!(ViaDrill));
+    expected_commands.extend(af_without_args!(BackDrill));
+    expected_commands.extend(to_af_commands(vec![
+        ApertureFunction::ComponentDrill { function: None },
+        ApertureFunction::ComponentDrill {
+            function: Some(ComponentDrill::PressFit),
+        },
+    ]));
+    expected_commands.extend(to_af_commands(vec![
+        ApertureFunction::MechanicalDrill { function: None },
+        ApertureFunction::MechanicalDrill {
+            function: Some(DrillFunction::Tooling),
+        },
+        ApertureFunction::MechanicalDrill {
+            function: Some(DrillFunction::BreakOut),
+        },
+        ApertureFunction::MechanicalDrill {
+            function: Some(DrillFunction::Other),
+        },
+    ]));
+    expected_commands.extend(af_without_args!(CastellatedDrill));
+    expected_commands.extend(to_af_commands(vec![ApertureFunction::OtherDrill(
+        "Value 1".to_string(),
+    )]));
+
+    //
+    // "Copper layers"
+    //
+    expected_commands.extend(af_without_args!(ComponentPad));
+    expected_commands.extend(to_af_commands(vec![
+        ApertureFunction::SmdPad(SmdPadType::CopperDefined),
+        ApertureFunction::SmdPad(SmdPadType::SoldermaskDefined),
+    ]));
+    expected_commands.extend(to_af_commands(vec![
+        ApertureFunction::BgaPad(SmdPadType::CopperDefined),
+        ApertureFunction::BgaPad(SmdPadType::SoldermaskDefined),
+    ]));
+    expected_commands.extend(af_without_args!(ConnectorPad));
+    expected_commands.extend(af_without_args!(HeatsinkPad));
+    expected_commands.extend(af_without_args!(ViaPad));
+    expected_commands.extend(af_without_args!(TestPad));
+    expected_commands.extend(af_without_args!(CastellatedPad));
+    expected_commands.extend(to_af_commands(vec![
+        ApertureFunction::FiducialPad(FiducialScope::Local),
+        ApertureFunction::FiducialPad(FiducialScope::Global),
+        ApertureFunction::FiducialPad(FiducialScope::Panel),
+    ]));
+    expected_commands.extend(af_without_args!(ThermalReliefPad));
+    expected_commands.extend(af_without_args!(WasherPad));
+    expected_commands.extend(af_without_args!(AntiPad));
+    expected_commands.extend(to_af_commands(vec![ApertureFunction::OtherPad(
+        "Value 1".to_string(),
+    )]));
+    expected_commands.extend(af_without_args!(Conductor));
+    expected_commands.extend(af_without_args!(EtchedComponent));
+    expected_commands.extend(af_without_args!(NonConductor));
+    expected_commands.extend(af_without_args!(CopperBalancing));
+    expected_commands.extend(af_without_args!(Border));
+    expected_commands.extend(to_af_commands(vec![ApertureFunction::OtherCopper(
+        "Value 1".to_string(),
+    )]));
+
+    //
+    // "Component layers"
+    //
+    expected_commands.extend(af_without_args!(ComponentMain));
+    expected_commands.extend(to_af_commands(vec![
+        ApertureFunction::ComponentOutline(ComponentOutline::Body),
+        ApertureFunction::ComponentOutline(ComponentOutline::Lead2Lead),
+        ApertureFunction::ComponentOutline(ComponentOutline::Footprint),
+        ApertureFunction::ComponentOutline(ComponentOutline::Courtyard),
+    ]));
+    expected_commands.extend(af_without_args!(ComponentPin));
+
+    //
+    // "All data layers"
+    //
+    expected_commands.extend(af_without_args!(Profile));
+    expected_commands.extend(af_without_args!(NonMaterial));
+    expected_commands.extend(af_without_args!(Material));
+    expected_commands.extend(to_af_commands(vec![ApertureFunction::Other(
+        "Value 1".to_string(),
+    )]));
+
+    //
+    // "Deprecated"
+    //
+    expected_commands.extend(af_without_args!(Slot));
+    expected_commands.extend(af_without_args!(CutOut));
+    expected_commands.extend(af_without_args!(Cavity));
+    expected_commands.extend(af_without_args!(Drawing));
+
     // then
-    assert_eq!(
-        filtered_commands,
-        vec![
-            Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
-                ApertureAttribute::ApertureFunction(ApertureFunction::WasherPad)
-            ))),
-            Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
-                ApertureAttribute::ApertureFunction(ApertureFunction::Profile)
-            ))),
-            Ok(Command::ExtendedCode(ExtendedCode::ApertureAttribute(
-                ApertureAttribute::ApertureFunction(ApertureFunction::Other(
-                    "teststring".to_string()
-                ))
-            ))),
-        ]
-    )
+    assert_eq!(filtered_commands, expected_commands)
 }
 
 #[test]

@@ -1,5 +1,3 @@
-use std::io::{BufRead, BufReader, Lines, Read};
-
 use crate::document::GerberDoc;
 use crate::error::ContentError;
 use crate::gerber_types::{
@@ -12,13 +10,18 @@ use crate::gerber_types::{
 };
 use crate::ParseError;
 use gerber_types::{
-    ApertureBlock, ComponentCharacteristics, ComponentMounting, CopperType, DrillRouteType,
-    ExtendedPosition, GenerationSoftware, GerberDate, GerberError, Ident, NonPlatedDrill,
-    ObjectAttribute, PlatedDrill, Position, Profile, ThermalPrimitive, Uuid, VariableDefinition,
+    ApertureBlock, ComponentCharacteristics, ComponentDrill, ComponentMounting, ComponentOutline,
+    CopperType, DrillFunction, DrillRouteType, ExtendedPosition, GenerationSoftware, GerberDate,
+    GerberError, IPC4761ViaProtection, Ident, NonPlatedDrill, ObjectAttribute, PartialGerberCode,
+    PlatedDrill, Position, Profile, ThermalPrimitive, Uuid, VariableDefinition,
 };
 use lazy_regex::*;
 use regex::Regex;
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Lines, Read};
+use std::iter::FromIterator;
 use std::str::Chars;
+use std::sync::LazyLock;
 
 // naively define some regex terms
 // FUTURE investigate which ones can be done without regex for better performance.
@@ -1371,18 +1374,17 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
 
     log::trace!("TF args: {:?}, len: {}", attr_args, attr_args.len());
 
-    let (first,  remaining_args, remaining_len) = split_first_str(&attr_args);
+    let (first, remaining_args, remaining_len) = split_first_str(&attr_args);
     match (first, remaining_args, remaining_len) {
         (".Part", args, len) if len >= 1 => {
-            let (first,  remaining_args, remaining_len) = split_first_str(remaining_args);
+            let (first, remaining_args, remaining_len) = split_first_str(remaining_args);
             match (first, remaining_args, remaining_len) {
                 ("Single", _, 0) => Ok(FileAttribute::Part(Part::Single)),
                 ("Array", _, 0) => Ok(FileAttribute::Part(Part::Array)),
                 ("FabricationPanel", _, 0) => Ok(FileAttribute::Part(Part::FabricationPanel)),
                 ("Coupon", _, 0) => Ok(FileAttribute::Part(Part::Coupon)),
                 ("Other", _, len) if len <= 1 => Ok(FileAttribute::Part(Part::Other(
-                    args
-                        .get(1)
+                    args.get(1)
                         .ok_or(ContentError::InsufficientArguments)?
                         .to_string(),
                 ))),
@@ -1390,56 +1392,73 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
                     part_type: arg.to_string(),
                 }),
             }
-        },
+        }
         (".FileFunction", remaining_args, len) if len >= 1 => {
-            let (first,  remaining_args, remaining_len) = split_first_str(remaining_args);
+            let (first, remaining_args, remaining_len) = split_first_str(remaining_args);
             match (first, remaining_args, remaining_len) {
                 //
                 // Data Layers
                 //
-                ("Copper", args, len) if len >= 2 && len <= 3 => Ok(FileAttribute::FileFunction(FileFunction::Copper {
-                    layer: parse_layer(args[0])?,
-                    pos: parse_extended_position(args[1])?,
-                    copper_type: args
-                        .get(2)
-                        .map(|value| parse_copper_type(value))
-                        .transpose()?,
-                })),
-                ("Plated", args, len) if len >= 3 && len <= 4  => Ok(FileAttribute::FileFunction(FileFunction::Plated {
-                    from_layer: parse_integer(args[0])?,
-                    to_layer: parse_integer(args[1])?,
-                    drill: parse_plated_drill(args[2])?,
-                    label: args
-                        .get(3)
-                        .map(|value| parse_drill_route_type(value))
-                        .transpose()?,
-                })),
-                ("NonPlated", args, len) if len >= 3 && len <= 4 => Ok(FileAttribute::FileFunction(FileFunction::NonPlated {
-                    from_layer: parse_integer(args[0])?,
-                    to_layer: parse_integer(args[1])?,
-                    drill: parse_non_plated_drill(args[2])?,
-                    label: args
-                        .get(3)
-                        .map(|value| parse_drill_route_type(value))
-                        .transpose()?,
-                })),
-                ("Profile", args, len) if len <= 1 => Ok(FileAttribute::FileFunction(FileFunction::Profile(
-                    args
-                        .get(0)
-                        .map(|value| parse_profile(value))
-                        .transpose()?,
-                ))),
-                ("Soldermask", args, len) if len <= 2 => with_side_and_optional_index!(SolderMask, args),
-                ("Legend", args, len) if len <= 2  => with_side_and_optional_index!(Legend, args),
+                ("Copper", args, len) if len >= 2 && len <= 3 => {
+                    Ok(FileAttribute::FileFunction(FileFunction::Copper {
+                        layer: parse_layer(args[0])?,
+                        pos: parse_extended_position(args[1])?,
+                        copper_type: args
+                            .get(2)
+                            .map(|value| parse_copper_type(value))
+                            .transpose()?,
+                    }))
+                }
+                ("Plated", args, len) if len >= 3 && len <= 4 => {
+                    Ok(FileAttribute::FileFunction(FileFunction::Plated {
+                        from_layer: parse_integer(args[0])?,
+                        to_layer: parse_integer(args[1])?,
+                        drill: parse_plated_drill(args[2])?,
+                        label: args
+                            .get(3)
+                            .map(|value| parse_drill_route_type(value))
+                            .transpose()?,
+                    }))
+                }
+                ("NonPlated", args, len) if len >= 3 && len <= 4 => {
+                    Ok(FileAttribute::FileFunction(FileFunction::NonPlated {
+                        from_layer: parse_integer(args[0])?,
+                        to_layer: parse_integer(args[1])?,
+                        drill: parse_non_plated_drill(args[2])?,
+                        label: args
+                            .get(3)
+                            .map(|value| parse_drill_route_type(value))
+                            .transpose()?,
+                    }))
+                }
+                ("Profile", args, len) if len <= 1 => {
+                    Ok(FileAttribute::FileFunction(FileFunction::Profile(
+                        args.get(0).map(|value| parse_profile(value)).transpose()?,
+                    )))
+                }
+                ("Soldermask", args, len) if len <= 2 => {
+                    with_side_and_optional_index!(SolderMask, args)
+                }
+                ("Legend", args, len) if len <= 2 => with_side_and_optional_index!(Legend, args),
                 ("Component", args, 2) => with_layer_and_side!(Component, args),
                 ("Paste", args, 1) => with_side!(Paste, args),
                 ("Glue", args, 1) => with_side!(Glue, args),
-                ("Carbonmask", args, len) if len <= 2  => with_side_and_optional_index!(CarbonMask, args),
-                ("Goldmask", args, len) if len <= 2  => with_side_and_optional_index!(GoldMask, args),
-                ("Heatsinkmask", args, len) if len <= 2  => with_side_and_optional_index!(HeatsinkMask, args),
-                ("Peelablemask", args, len) if len <= 2  => with_side_and_optional_index!(PeelableMask, args),
-                ("Silvermask", args, len) if len <= 2  => with_side_and_optional_index!(SilverMask, args),
-                ("Tinmask", args, len) if len <= 2  => with_side_and_optional_index!(TinMask, args),
+                ("Carbonmask", args, len) if len <= 2 => {
+                    with_side_and_optional_index!(CarbonMask, args)
+                }
+                ("Goldmask", args, len) if len <= 2 => {
+                    with_side_and_optional_index!(GoldMask, args)
+                }
+                ("Heatsinkmask", args, len) if len <= 2 => {
+                    with_side_and_optional_index!(HeatsinkMask, args)
+                }
+                ("Peelablemask", args, len) if len <= 2 => {
+                    with_side_and_optional_index!(PeelableMask, args)
+                }
+                ("Silvermask", args, len) if len <= 2 => {
+                    with_side_and_optional_index!(SilverMask, args)
+                }
+                ("Tinmask", args, len) if len <= 2 => with_side_and_optional_index!(TinMask, args),
                 ("Depthrout", args, 1) => with_side!(DepthRoute, args),
                 ("Vcut", args, len) if len <= 1 => with_optional_side!(VCut, args),
                 ("Viafill", _, 0) => Ok(FileAttribute::FileFunction(FileFunction::ViaFill)),
@@ -1454,15 +1473,17 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
                 )),
                 ("Vcutmap", _, 0) => Ok(FileAttribute::FileFunction(FileFunction::VCutMap)),
                 ("AssemblyDrawing", args, 1) => with_side!(AssemblyDrawing, args),
-                ("ArrayDrawing", _, 0) => Ok(FileAttribute::FileFunction(FileFunction::ArrayDrawing)),
+                ("ArrayDrawing", _, 0) => {
+                    Ok(FileAttribute::FileFunction(FileFunction::ArrayDrawing))
+                }
                 ("OtherDrawing", args, 1) => with_string!(OtherDrawing, args),
                 (arg, _, _) => Err(ContentError::UnsupportedFileAttribute {
                     attribute_name: arg.to_string(),
                 }),
             }
-        },
+        }
         (".FilePolarity", remaining_args, 1) => {
-            let (first,  remaining_args, remaining_len) = split_first_str(remaining_args);
+            let (first, remaining_args, remaining_len) = split_first_str(remaining_args);
             match (first, remaining_args, remaining_len) {
                 ("Positive", _, 0) => Ok(FileAttribute::FilePolarity(FilePolarity::Positive)),
                 ("Negative", _, 0) => Ok(FileAttribute::FilePolarity(FilePolarity::Negative)),
@@ -1470,12 +1491,9 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
                     polarity_type: arg.to_string(),
                 }),
             }
-        },
+        }
         (".SameCoordinates", args, len) if len <= 1 => Ok(FileAttribute::SameCoordinates(
-            args
-                .get(0)
-                .map(|value| parse_ident(value))
-                .transpose()?,
+            args.get(0).map(|value| parse_ident(value)).transpose()?,
         )),
         (".CreationDate", args, 1) => Ok(FileAttribute::CreationDate(parse_date_time(args[0])?)),
         (".GenerationSoftware", args, len) if len <= 3 => {
@@ -1605,150 +1623,199 @@ fn parse_drill_route_type(arg: &str) -> Result<DrillRouteType, ContentError> {
     }
 }
 
-fn split_first_str<'a>(slice: &'a[&'a str]) -> (&'_ str, &'_ [&'_ str], usize) {
-    slice.split_first().map(|(head, tail)| (*head, tail, tail.len())).unwrap()
+fn split_first_str<'a>(slice: &'a [&'a str]) -> (&'a str, &'a [&'a str], usize) {
+    slice
+        .split_first()
+        .map(|(head, tail)| (*head, tail, tail.len()))
+        .unwrap()
 }
 
 /// Parse an Aperture Attribute (%TA.<AttributeName>[,<AttributeValue>]*%) into Command
 ///
-/// For now we consider three types of TA statements:
-/// 1. Aperture Function (AperFunction) with field: String
-/// 2. Drill tolerance (DrillTolerance) with fields: [1] num [2] num
+/// We consider three types of TA statements:
+/// 1. Aperture Function (AperFunction)
+/// 2. Drill tolerance (DrillTolerance)
 /// 3. Anything else goes into UserDefined attribute.
 ///
 /// ⚠️ This parsing statement needs a lot of tests and validation at the current stage!
 fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
     use ContentError::UnsupportedApertureAttribute;
 
+    macro_rules! build_map {
+        ($name: ident, $t:ident ) => {
+            static $name: LazyLock<HashMap<String, $t>> = LazyLock::new(|| {
+                HashMap::from_iter(
+                    $t::values()
+                        .iter()
+                        .map(|&it| {
+                            let mut value: Vec<u8> = Vec::new();
+                            it.serialize_partial(&mut value).unwrap();
+
+                            (String::from_utf8(value).unwrap().to_lowercase(), it)
+                        })
+                        .collect::<Vec<(String, _)>>(),
+                )
+            });
+        };
+    }
+
+    build_map!(IPC_MAP, IPC4761ViaProtection);
+    build_map!(COMPONENT_DRILL_MAP, ComponentDrill);
+    build_map!(DRILL_FUNCTION_MAP, DrillFunction);
+    build_map!(SMD_PAD_MAP, SmdPadType);
+    build_map!(COMPONENT_OUTLINE_MAP, ComponentOutline);
+
+    fn lookup_in_map_optional<'a, T>(
+        arg: Option<&&str>,
+        map: &'a HashMap<String, T>,
+    ) -> Result<Option<&'a T>, ContentError> {
+        arg.map(|arg| {
+            map.get(&arg.to_lowercase())
+                .ok_or(ContentError::InvalidParameter {
+                    parameter: arg.to_string(),
+                })
+        })
+        .transpose()
+    }
+
+    fn lookup_in_map_required<'a, T>(
+        arg: &str,
+        map: &'a HashMap<String, T>,
+    ) -> Result<&'a T, ContentError> {
+        map.get(&arg.to_lowercase())
+            .ok_or(ContentError::InvalidParameter {
+                parameter: arg.to_string(),
+            })
+    }
+
     let raw_line = line.as_str().to_string();
     let attr_args = get_attr_args(line)?;
-    // log::debug!("TA ARGS: {:?}", attr_args);
-    if attr_args.len() >= 2 {
-        // we must have at least 1 field
-        match attr_args[0] {
-            ".AperFunction" => {
-                Ok(
-                    ExtendedCode::ApertureAttribute(ApertureAttribute::ApertureFunction(
-                        match attr_args[1] {
-                            "ViaDrill" => {
-                                // TODO add support the IPC4761ViaProtection parameter
-                                ApertureFunction::ViaDrill(None)
-                            }
-                            "BackDrill" => ApertureFunction::BackDrill,
-                            "ComponentDrill" => {
-                                // TODO parse this
-                                ApertureFunction::ComponentDrill { press_fit: None }
-                            }
-                            "CastellatedDrill" => ApertureFunction::CastellatedDrill,
-                            "MechanicalDrill" => {
-                                // TODO parse this
-                                ApertureFunction::MechanicalDrill { function: None }
-                            }
-                            "Slot" => ApertureFunction::Slot,
-                            "CutOut" => ApertureFunction::CutOut,
-                            "Cavity" => ApertureFunction::Cavity,
-                            "OtherDrill" => ApertureFunction::OtherDrill(attr_args[2].to_string()),
-                            "ComponentPad " => ApertureFunction::ComponentPad,
-                            "SmdPad" => match attr_args[2] {
-                                "CopperDefined" => {
-                                    ApertureFunction::SmdPad(SmdPadType::CopperDefined)
-                                }
-                                "SoldermaskDefined" => {
-                                    ApertureFunction::SmdPad(SmdPadType::SoldermaskDefined)
-                                }
-                                _ => {
-                                    return Err(UnsupportedApertureAttribute {
-                                        aperture_attribute: raw_line,
-                                    })
-                                }
-                            },
-                            "BgaPad" => match attr_args[2] {
-                                "CopperDefined" => {
-                                    ApertureFunction::BgaPad(SmdPadType::CopperDefined)
-                                }
-                                "SoldermaskDefined" => {
-                                    ApertureFunction::BgaPad(SmdPadType::SoldermaskDefined)
-                                }
-                                _ => {
-                                    return Err(UnsupportedApertureAttribute {
-                                        aperture_attribute: raw_line,
-                                    })
-                                }
-                            },
-                            "HeatsinkPad" => ApertureFunction::HeatsinkPad,
-                            "TestPad" => ApertureFunction::TestPad,
-                            "CastellatedPad" => ApertureFunction::CastellatedPad,
-                            "FiducialPad" => match attr_args[2] {
-                                "Global" => ApertureFunction::FiducialPad(FiducialScope::Global),
-                                "Local" => ApertureFunction::FiducialPad(FiducialScope::Local),
-                                _ => {
-                                    return Err(UnsupportedApertureAttribute {
-                                        aperture_attribute: raw_line,
-                                    })
-                                }
-                            },
-                            "ThermalReliefPad" => ApertureFunction::ThermalReliefPad,
-                            "WasherPad" => ApertureFunction::WasherPad,
-                            "AntiPad" => ApertureFunction::AntiPad,
-                            "OtherPad" => ApertureFunction::OtherPad(attr_args[2].to_string()),
-                            "Conductor" => ApertureFunction::Conductor,
-                            "NonConductor" => ApertureFunction::NonConductor,
-                            "CopperBalancing" => ApertureFunction::CopperBalancing,
-                            "Border" => ApertureFunction::Border,
-                            "OtherCopper" => {
-                                ApertureFunction::OtherCopper(attr_args[2].to_string())
-                            }
-                            "Profile" => ApertureFunction::Profile,
-                            "NonMaterial" => ApertureFunction::NonMaterial,
-                            "Material" => ApertureFunction::Material,
-                            "Other" => ApertureFunction::Other(attr_args[2].to_string()),
+
+    log::trace!("TA ARGS: {:?}", attr_args);
+    let (first, remaining_args, remaining_len) = split_first_str(&attr_args);
+    match (first, remaining_args, remaining_len) {
+        (".AperFunction", remaining_args, len) if len >= 1 => {
+            let (first, remaining_args, remaining_len) = split_first_str(remaining_args);
+            Ok(
+                ExtendedCode::ApertureAttribute(ApertureAttribute::ApertureFunction(
+                    match (first, remaining_args, remaining_len) {
+                        // "Drill and rout layers"
+                        ("ViaDrill", args, len) if len <= 1 => {
+                            let function = lookup_in_map_optional(args.first(), &IPC_MAP)?.cloned();
+
+                            ApertureFunction::ViaDrill(function)
+                        }
+                        ("BackDrill", _, 0) => ApertureFunction::BackDrill,
+                        ("ComponentDrill", args, len) if len <= 1 => {
+                            let function =
+                                lookup_in_map_optional(args.first(), &COMPONENT_DRILL_MAP)?
+                                    .cloned();
+                            ApertureFunction::ComponentDrill { function }
+                        }
+                        ("MechanicalDrill", args, len) if len <= 1 => {
+                            let function =
+                                lookup_in_map_optional(args.first(), &DRILL_FUNCTION_MAP)?.cloned();
+                            ApertureFunction::MechanicalDrill { function }
+                        }
+                        ("CastellatedDrill", _, 0) => ApertureFunction::CastellatedDrill,
+                        ("OtherDrill", args, 1) => {
+                            ApertureFunction::OtherDrill(args[0].to_string())
+                        }
+
+                        // "Copper layers"
+                        ("ComponentPad", _, 0) => ApertureFunction::ComponentPad,
+                        ("SMDPad", args, 1) => {
+                            let value = lookup_in_map_required(args[0], &SMD_PAD_MAP)?.clone();
+                            ApertureFunction::SmdPad(value)
+                        }
+                        ("BGAPad", args, 1) => {
+                            let value = lookup_in_map_required(args[0], &SMD_PAD_MAP)?.clone();
+                            ApertureFunction::BgaPad(value)
+                        }
+                        ("ConnectorPad", _, 0) => ApertureFunction::ConnectorPad,
+                        ("HeatsinkPad", _, 0) => ApertureFunction::HeatsinkPad,
+                        ("ViaPad", _, 0) => ApertureFunction::ViaPad,
+                        ("TestPad", _, 0) => ApertureFunction::TestPad,
+                        ("CastellatedPad", _, 0) => ApertureFunction::CastellatedPad,
+                        ("FiducialPad", args, 1) => match args[0] {
+                            "Local" => ApertureFunction::FiducialPad(FiducialScope::Local),
+                            "Global" => ApertureFunction::FiducialPad(FiducialScope::Global),
+                            "Panel" => ApertureFunction::FiducialPad(FiducialScope::Panel),
                             _ => {
                                 return Err(UnsupportedApertureAttribute {
                                     aperture_attribute: raw_line,
                                 })
                             }
                         },
-                    ))
-                    .into(),
-                )
-            }
-            ".DrillTolerance" => Ok(ExtendedCode::ApertureAttribute(
-                ApertureAttribute::DrillTolerance {
-                    plus: attr_args[1].parse::<f64>().map_err(|_| {
-                        ContentError::DrillToleranceParseNumError {
-                            number_str: attr_args[1].to_string(),
+                        ("ThermalReliefPad", _, 0) => ApertureFunction::ThermalReliefPad,
+                        ("WasherPad", _, 0) => ApertureFunction::WasherPad,
+                        ("AntiPad", _, 0) => ApertureFunction::AntiPad,
+                        ("OtherPad", args, 1) => ApertureFunction::OtherPad(args[0].to_string()),
+                        ("Conductor", _, 0) => ApertureFunction::Conductor,
+                        ("EtchedComponent", _, 0) => ApertureFunction::EtchedComponent,
+                        ("NonConductor", _, 0) => ApertureFunction::NonConductor,
+                        ("CopperBalancing", _, 0) => ApertureFunction::CopperBalancing,
+                        ("Border", _, 0) => ApertureFunction::Border,
+                        ("OtherCopper", args, 1) => {
+                            ApertureFunction::OtherCopper(args[0].to_string())
                         }
-                    })?,
-                    minus: attr_args[2].parse::<f64>().map_err(|_| {
-                        ContentError::DrillToleranceParseNumError {
-                            number_str: attr_args[2].to_string(),
+
+                        // "Component layers"
+                        ("ComponentMain", _, 0) => ApertureFunction::ComponentMain,
+                        ("ComponentOutline", args, 1) => {
+                            let value =
+                                lookup_in_map_required(args[0], &COMPONENT_OUTLINE_MAP)?.clone();
+                            ApertureFunction::ComponentOutline(value)
                         }
-                    })?,
-                },
-            )
-            .into()),
-            _ => Ok(
-                ExtendedCode::ApertureAttribute(ApertureAttribute::UserDefined {
-                    name: attr_args[0].to_string(),
-                    values: attr_args[1..].iter().map(|v| v.to_string()).collect(),
-                })
+                        ("ComponentPin", _, 0) => ApertureFunction::ComponentPin,
+
+                        // "All data layers"
+                        ("Profile", _, 0) => ApertureFunction::Profile,
+                        ("NonMaterial", _, 0) => ApertureFunction::NonMaterial,
+                        ("Material", _, 0) => ApertureFunction::Material,
+                        ("Other", args, 1) => ApertureFunction::Other(args[0].to_string()),
+
+                        // "Deprecated" (not in 2024.05 - 5.6.10 ".AperFunction")
+                        ("Slot", _, 0) => ApertureFunction::Slot,
+                        ("CutOut", _, 0) => ApertureFunction::CutOut,
+                        ("Cavity", _, 0) => ApertureFunction::Cavity,
+                        ("Drawing", _, 0) => ApertureFunction::Drawing,
+                        _ => {
+                            return Err(UnsupportedApertureAttribute {
+                                aperture_attribute: raw_line,
+                            })
+                        }
+                    },
+                ))
                 .into(),
-            ),
+            )
         }
-    } else {
-        Err(ContentError::InvalidApertureAttribute {
-            aperture_attribute: raw_line,
-        })
+        (".DrillTolerance", args, 2) => Ok(ExtendedCode::ApertureAttribute(
+            ApertureAttribute::DrillTolerance {
+                plus: args[0].parse::<f64>().map_err(|_| {
+                    ContentError::DrillToleranceParseNumError {
+                        number_str: args[0].to_string(),
+                    }
+                })?,
+                minus: args[1].parse::<f64>().map_err(|_| {
+                    ContentError::DrillToleranceParseNumError {
+                        number_str: args[1].to_string(),
+                    }
+                })?,
+            },
+        )
+        .into()),
+        (arg, args, _) => Ok(
+            ExtendedCode::ApertureAttribute(ApertureAttribute::UserDefined {
+                name: arg.to_string(),
+                values: args.iter().map(|v| v.to_string()).collect(),
+            })
+            .into(),
+        ),
     }
 }
 
-/// Parse an Aperture Attribute (%TA.<AttributeName>[,<AttributeValue>]*%) into Command
-///
-/// For now we consider three types of TA statements:
-/// 1. Aperture Function (AperFunction) with field: String
-/// 2. Drill tolerance (DrillTolerance) with fields: [1] num [2] num
-/// 3. Anything else goes into UserDefined attribute.
-///
+/// Parse an Object Attribute (%TO.<AttributeName>[,<AttributeValue>]*%) into Command
 /// ⚠️ This parsing statement needs a lot of tests and validation at the current stage!
 fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
     macro_rules! parse_cc_decimal {
@@ -1775,13 +1842,15 @@ fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
         }};
     }
 
-    let raw_line = line.as_str().to_string();
     let attr_args = get_attr_args(line)?;
     log::trace!("TO ARGS: {:?}", attr_args);
 
-    let (first,  remaining_args, remaining_len) = split_first_str(&attr_args);
+    let (first, remaining_args, remaining_len) = split_first_str(&attr_args);
 
     match (first, remaining_args, remaining_len) {
+        // TODO ".N"
+        // TODO ".P"
+        // TODO ".C"
         (".CRot", args, 1) => parse_cc_decimal!(Rotation, args[0]),
         (".CMfr", args, 1) => parse_cc_string!(Manufacturer, args[0]),
         (".CMPN", args, 1) => parse_cc_string!(MPN, args[0]),
