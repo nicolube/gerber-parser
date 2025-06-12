@@ -1,3 +1,4 @@
+use gerber_types::{CoordinateFormat, GerberError};
 use regex::Regex;
 use std::fmt::Formatter;
 use std::num::{ParseFloatError, ParseIntError};
@@ -122,6 +123,11 @@ pub enum ContentError {
     InvalidDateTime(String),
     #[error("Invalid UUID: '{0}'")]
     InvalidUuid(String),
+    #[error("Coordinate format mismatch. expected: '{format:?}', found: '{cause:?}'")]
+    CoordinateFormatMismatch {
+        format: CoordinateFormat,
+        cause: GerberError,
+    },
 }
 
 impl ContentError {

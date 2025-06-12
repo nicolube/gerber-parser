@@ -13,8 +13,8 @@ use crate::gerber_types::{
 use crate::ParseError;
 use gerber_types::{
     ApertureBlock, ComponentCharacteristics, ComponentMounting, CopperType, DrillRouteType,
-    ExtendedPosition, GenerationSoftware, GerberDate, Ident, NonPlatedDrill, ObjectAttribute,
-    PlatedDrill, Position, Profile, ThermalPrimitive, Uuid, VariableDefinition,
+    ExtendedPosition, GenerationSoftware, GerberDate, GerberError, Ident, NonPlatedDrill,
+    ObjectAttribute, PlatedDrill, Position, Profile, ThermalPrimitive, Uuid, VariableDefinition,
 };
 use lazy_regex::*;
 use regex::Regex;
@@ -1175,31 +1175,44 @@ fn parse_interpolation(line: &str, gerber_doc: &GerberDoc) -> Result<Command, Co
                 let i_offset = parse_coord::<i64>(i_offset_raw.as_str())?;
                 let j_offset = parse_coord::<i64>(j_offset_raw.as_str())?;
 
+                let fs = gerber_doc
+                    .format_specification
+                    .ok_or(ContentError::OperationBeforeFormat {})?;
+
+                let coordinates =
+                    partial_coordinates_from_gerber(x_coord, y_coord, fs).map_err(|error| {
+                        ContentError::CoordinateFormatMismatch {
+                            format: fs,
+                            cause: error,
+                        }
+                    })?;
+
+                let offset =
+                    coordinates_offset_from_gerber(i_offset, j_offset, fs).map_err(|error| {
+                        ContentError::CoordinateFormatMismatch {
+                            format: fs,
+                            cause: error,
+                        }
+                    })?;
+
                 Ok(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(
-                    partial_coordinates_from_gerber(
-                        x_coord,
-                        y_coord,
-                        gerber_doc
-                            .format_specification
-                            .ok_or(ContentError::OperationBeforeFormat {})?,
-                    ),
-                    Some(coordinates_offset_from_gerber(
-                        i_offset,
-                        j_offset,
-                        gerber_doc.format_specification.unwrap(/*Already checked above*/),
-                    )),
+                    coordinates,
+                    Some(offset),
                 )))
                 .into())
             } else {
+                let fs = gerber_doc
+                    .format_specification
+                    .ok_or(ContentError::OperationBeforeFormat {})?;
+
                 // linear interpolation, only X,Y parameters
                 Ok(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(
-                    partial_coordinates_from_gerber(
-                        x_coord,
-                        y_coord,
-                        gerber_doc
-                            .format_specification
-                            .ok_or(ContentError::OperationBeforeFormat {})?,
-                    ),
+                    partial_coordinates_from_gerber(x_coord, y_coord, fs).map_err(|error| {
+                        ContentError::CoordinateFormatMismatch {
+                            format: fs,
+                            cause: error,
+                        }
+                    })?,
                     None,
                 )))
                 .into())
@@ -1228,13 +1241,17 @@ fn parse_move_or_flash(
                 .map(|y| parse_coord::<i64>(y.as_str()))
                 .transpose()?;
 
-            let coords = partial_coordinates_from_gerber(
-                x_coord,
-                y_coord,
-                gerber_doc
-                    .format_specification
-                    .ok_or(ContentError::OperationBeforeFormat {})?,
-            );
+            let fs = gerber_doc
+                .format_specification
+                .ok_or(ContentError::OperationBeforeFormat {})?;
+
+            let coords =
+                partial_coordinates_from_gerber(x_coord, y_coord, fs).map_err(|error| {
+                    ContentError::CoordinateFormatMismatch {
+                        format: fs,
+                        cause: error,
+                    }
+                })?;
 
             if flash {
                 Ok(FunctionCode::DCode(DCode::Operation(Operation::Flash(coords))).into())
@@ -1842,48 +1859,52 @@ pub fn coordinates_from_gerber(
     mut x_as_int: i64,
     mut y_as_int: i64,
     fs: CoordinateFormat,
-) -> Coordinates {
+) -> Result<Coordinates, GerberError> {
     // we have the raw gerber string as int but now have to convert it to nano precision format
     // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
     let factor = (6u8 - fs.decimal) as u32;
     x_as_int *= 10i64.pow(factor);
     y_as_int *= 10i64.pow(factor);
-    Coordinates::new(
-        CoordinateNumber::new(x_as_int),
-        CoordinateNumber::new(y_as_int),
+    Ok(Coordinates::new(
+        CoordinateNumber::new(x_as_int).validate(&fs)?,
+        CoordinateNumber::new(y_as_int).validate(&fs)?,
         fs,
-    )
+    ))
 }
 
 pub fn partial_coordinates_from_gerber(
     x_as_int: Option<i64>,
     y_as_int: Option<i64>,
     fs: CoordinateFormat,
-) -> Coordinates {
+) -> Result<Coordinates, GerberError> {
     // we have the raw gerber string as int but now have to convert it to nano precision format
     // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
     let factor = (6u8 - fs.decimal) as u32;
-    let x = x_as_int.map(|value| CoordinateNumber::new(value * 10i64.pow(factor)));
-    let y = y_as_int.map(|value| CoordinateNumber::new(value * 10i64.pow(factor)));
+    let x = x_as_int
+        .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
+        .transpose()?;
+    let y = y_as_int
+        .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
+        .transpose()?;
 
-    Coordinates::new(x, y, fs)
+    Ok(Coordinates::new(x, y, fs))
 }
 
 pub fn coordinates_offset_from_gerber(
     mut x_as_int: i64,
     mut y_as_int: i64,
     fs: CoordinateFormat,
-) -> CoordinateOffset {
+) -> Result<CoordinateOffset, GerberError> {
     // we have the raw gerber string as int but now have to convert it to nano precision format
     // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
     let factor = (6u8 - fs.decimal) as u32;
     x_as_int *= 10i64.pow(factor);
     y_as_int *= 10i64.pow(factor);
-    CoordinateOffset::new(
-        CoordinateNumber::new(x_as_int),
-        CoordinateNumber::new(y_as_int),
+    Ok(CoordinateOffset::new(
+        CoordinateNumber::new(x_as_int).validate(&fs)?,
+        CoordinateNumber::new(y_as_int).validate(&fs)?,
         fs,
-    )
+    ))
 }
 
 /// Split the line by commas and convert to a vector of strings

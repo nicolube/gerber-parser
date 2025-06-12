@@ -1,17 +1,18 @@
 use ::std::collections::HashMap;
-use gerber_parser::GerberParserErrorWithContext;
 use gerber_parser::{
     coordinates_from_gerber, coordinates_offset_from_gerber, parse, partial_coordinates_from_gerber,
 };
+use gerber_parser::{ContentError, GerberParserErrorWithContext};
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureBlock, ApertureDefinition, ApertureFunction,
     ApertureMacro, Circle, CirclePrimitive, Command, ComponentCharacteristics, ComponentMounting,
     CoordinateFormat, CoordinateOffset, Coordinates, CopperType, DCode, DrillRouteType,
     ExtendedCode, ExtendedPosition, FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode,
-    GenerationSoftware, GerberDate, Ident, InterpolationMode, MCode, MacroBoolean, MacroContent,
-    MacroDecimal, MacroInteger, NonPlatedDrill, ObjectAttribute, Operation, OutlinePrimitive, Part,
-    PlatedDrill, Polygon, PolygonPrimitive, Position, Profile, QuadrantMode, Rectangular,
-    StepAndRepeat, ThermalPrimitive, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
+    GenerationSoftware, GerberDate, GerberError, Ident, InterpolationMode, MCode, MacroBoolean,
+    MacroContent, MacroDecimal, MacroInteger, NonPlatedDrill, ObjectAttribute, Operation,
+    OutlinePrimitive, Part, PlatedDrill, Polygon, PolygonPrimitive, Position, Profile,
+    QuadrantMode, Rectangular, StepAndRepeat, ThermalPrimitive, Unit, Uuid, VariableDefinition,
+    VectorLinePrimitive,
 };
 mod util;
 use gerber_parser::util::gerber_to_reader;
@@ -324,19 +325,19 @@ fn D01_interpolation_linear() {
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    coordinates_from_gerber(4000, 5000, fs),
+                    coordinates_from_gerber(4000, 5000, fs).unwrap(),
                     None
                 ))
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    coordinates_from_gerber(0, 0, fs),
+                    coordinates_from_gerber(0, 0, fs).unwrap(),
                     None
                 ))
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    coordinates_from_gerber(-1000, -30000, fs),
+                    coordinates_from_gerber(-1000, -30000, fs).unwrap(),
                     None
                 ))
             )))
@@ -382,14 +383,14 @@ fn D01_interpolation_circular() {
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    coordinates_from_gerber(0, 0, fs),
+                    coordinates_from_gerber(0, 0, fs).unwrap(),
                     None
                 ))
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    coordinates_from_gerber(-1000, -30000, fs),
-                    Some(coordinates_offset_from_gerber(200, -5000, fs))
+                    coordinates_from_gerber(-1000, -30000, fs).unwrap(),
+                    Some(coordinates_offset_from_gerber(200, -5000, fs).unwrap())
                 ))
             )))
         ]
@@ -435,10 +436,14 @@ fn DO2_move_to_command() {
         filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Move(coordinates_from_gerber(0, -333, fs)))
+                DCode::Operation(Operation::Move(
+                    coordinates_from_gerber(0, -333, fs).unwrap()
+                ))
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Move(coordinates_from_gerber(5555, -12, fs)))
+                DCode::Operation(Operation::Move(
+                    coordinates_from_gerber(5555, -12, fs).unwrap()
+                ))
             )))
         ]
     )
@@ -480,10 +485,12 @@ fn DO3_flash_command() {
         filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Flash(coordinates_from_gerber(4000, -5000, fs)))
+                DCode::Operation(Operation::Flash(
+                    coordinates_from_gerber(4000, -5000, fs).unwrap()
+                ))
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Flash(coordinates_from_gerber(0, 0, fs)))
+                DCode::Operation(Operation::Flash(coordinates_from_gerber(0, 0, fs).unwrap()))
             )))
         ]
     )
@@ -527,18 +534,14 @@ fn omitted_coordinate() {
         filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(
-                    None,
-                    Some(-3000),
-                    fs
-                )))
+                DCode::Operation(Operation::Flash(
+                    partial_coordinates_from_gerber(None, Some(-3000), fs).unwrap()
+                ))
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(
-                    Some(1234),
-                    None,
-                    fs
-                )))
+                DCode::Operation(Operation::Flash(
+                    partial_coordinates_from_gerber(Some(1234), None, fs).unwrap()
+                ))
             )))
         ]
     )
@@ -1661,8 +1664,6 @@ fn nonexistent_aperture_selection() {
 
 /// This statement should fail as this is not within the format specification (2 integer, 3 decimal)
 #[test]
-#[ignore]
-#[should_panic]
 fn coordinates_not_within_format() {
     // given
     logging_init();
@@ -1680,9 +1681,22 @@ fn coordinates_not_within_format() {
     M02*        
     ",
     );
-
+    // when
     let doc = parse(reader).unwrap();
-    assert!(doc.errors().is_empty());
+    dump_commands(&doc.commands);
+
+    // then
+    let errors = doc.into_errors();
+
+    assert!(matches!(errors.first().unwrap(),
+        GerberParserErrorWithContext {
+            error: ContentError::CoordinateFormatMismatch {
+                format,
+                cause: GerberError::CoordinateFormatError(_)
+            },
+            line: Some((number, content)),
+        } if format.integer == 2 && format.decimal == 3 && *number == 8 && content.eq("X100000Y0D01*")
+    ));
 }
 
 /// Test the D* statements, diptrace exports gerber files without the leading `0` on the `D0*` commands.
@@ -1729,19 +1743,19 @@ fn diptrace_Dxx_statements() {
         filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Move(coordinates_from_gerber(
-                    2928500, 1670000, fs
-                )))
+                DCode::Operation(Operation::Move(
+                    coordinates_from_gerber(2928500, 1670000, fs).unwrap()
+                ))
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    partial_coordinates_from_gerber(Some(2998500), None, fs),
+                    partial_coordinates_from_gerber(Some(2998500), None, fs).unwrap(),
                     None
                 ))
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    partial_coordinates_from_gerber(None, Some(1530000), fs),
+                    partial_coordinates_from_gerber(None, Some(1530000), fs).unwrap(),
                     None
                 ))
             ))),
@@ -1964,66 +1978,68 @@ M02*
         vec![
             // Initial move
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Move(coordinates_from_gerber(10000, 10000, fs)))
+                DCode::Operation(Operation::Move(
+                    coordinates_from_gerber(10000, 10000, fs).unwrap()
+                ))
             ))),
             // D1 with no coordinates - uses previous position
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    partial_coordinates_from_gerber(None, None, fs),
+                    partial_coordinates_from_gerber(None, None, fs).unwrap(),
                     None
                 ))
             ))),
             // X20000D1 - keeps previous Y coordinate
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    partial_coordinates_from_gerber(Some(20000), None, fs),
+                    partial_coordinates_from_gerber(Some(20000), None, fs).unwrap(),
                     None
                 ))
             ))),
             // D3 with no coordinates - uses previous position
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(
-                    None, None, fs
-                )))
+                DCode::Operation(Operation::Flash(
+                    partial_coordinates_from_gerber(None, None, fs).unwrap()
+                ))
             ))),
             // Y20000D1 - keeps previous X coordinate
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    partial_coordinates_from_gerber(None, Some(20000), fs),
+                    partial_coordinates_from_gerber(None, Some(20000), fs).unwrap(),
                     None
                 ))
             ))),
             // D3 with no coordinates - uses previous position
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(
-                    None, None, fs
-                )))
+                DCode::Operation(Operation::Flash(
+                    partial_coordinates_from_gerber(None, None, fs).unwrap()
+                ))
             ))),
             // X10000D1 - keeps previous Y coordinate
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    partial_coordinates_from_gerber(Some(10000), None, fs),
+                    partial_coordinates_from_gerber(Some(10000), None, fs).unwrap(),
                     None
                 ))
             ))),
             // D3 with no coordinates - uses previous position
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(
-                    None, None, fs
-                )))
+                DCode::Operation(Operation::Flash(
+                    partial_coordinates_from_gerber(None, None, fs).unwrap()
+                ))
             ))),
             // Y10000D1 - keeps previous X coordinate
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    partial_coordinates_from_gerber(None, Some(10000), fs),
+                    partial_coordinates_from_gerber(None, Some(10000), fs).unwrap(),
                     None
                 ))
             ))),
             // D3 with no coordinates - uses previous position
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Flash(partial_coordinates_from_gerber(
-                    None, None, fs
-                )))
+                DCode::Operation(Operation::Flash(
+                    partial_coordinates_from_gerber(None, None, fs).unwrap()
+                ))
             )))
         ]
     );
