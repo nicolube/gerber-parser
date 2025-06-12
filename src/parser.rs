@@ -1326,15 +1326,15 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
     macro_rules! with_side_and_optional_index {
         ($name:ident, $args:ident) => {
             Ok(FileAttribute::FileFunction(FileFunction::$name {
-                pos: parse_position($args[2])?,
-                index: $args.get(3).map(|value| parse_integer(value)).transpose()?,
+                pos: parse_position($args[0])?,
+                index: $args.get(1).map(|value| parse_integer(value)).transpose()?,
             }))
         };
     }
     macro_rules! with_side {
         ($name:ident, $args:ident) => {
             Ok(FileAttribute::FileFunction(FileFunction::$name(
-                parse_position($args[2])?,
+                parse_position($args[0])?,
             )))
         };
     }
@@ -1342,7 +1342,7 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
     macro_rules! with_string {
         ($name:ident, $args:ident) => {
             Ok(FileAttribute::FileFunction(FileFunction::$name(
-                $args[2].to_string(),
+                $args[0].to_string(),
             )))
         };
     }
@@ -1350,8 +1350,8 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
     macro_rules! with_layer_and_side {
         ($name:ident, $args:ident) => {
             Ok(FileAttribute::FileFunction(FileFunction::$name {
-                layer: parse_layer($args[2])?,
-                pos: parse_position($args[3])?,
+                layer: parse_layer($args[0])?,
+                pos: parse_position($args[1])?,
             }))
         };
     }
@@ -1360,7 +1360,7 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
         ($name:ident, $args:ident) => {
             Ok(FileAttribute::FileFunction(FileFunction::$name(
                 $args
-                    .get(2)
+                    .get(0)
                     .map(|value| parse_position(value))
                     .transpose()?,
             )))
@@ -1371,121 +1371,129 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
 
     log::trace!("TF args: {:?}, len: {}", attr_args, attr_args.len());
 
-    match (attr_args[0], attr_args.len()) {
-        (".Part", args_len) if args_len >= 2 => match attr_args[1] {
-            "Single" => Ok(FileAttribute::Part(Part::Single)),
-            "Array" => Ok(FileAttribute::Part(Part::Array)),
-            "FabricationPanel" => Ok(FileAttribute::Part(Part::FabricationPanel)),
-            "Coupon" => Ok(FileAttribute::Part(Part::Coupon)),
-            "Other" => Ok(FileAttribute::Part(Part::Other(
-                attr_args
-                    .get(2)
-                    .ok_or(ContentError::InsufficientArguments)?
-                    .to_string(),
-            ))),
-            _ => Err(ContentError::UnsupportedPartType {
-                part_type: attr_args[1].to_string(),
-            }),
+    let (first,  remaining_args, remaining_len) = split_first_str(&attr_args);
+    match (first, remaining_args, remaining_len) {
+        (".Part", args, len) if len >= 1 => {
+            let (first,  remaining_args, remaining_len) = split_first_str(remaining_args);
+            match (first, remaining_args, remaining_len) {
+                ("Single", _, 0) => Ok(FileAttribute::Part(Part::Single)),
+                ("Array", _, 0) => Ok(FileAttribute::Part(Part::Array)),
+                ("FabricationPanel", _, 0) => Ok(FileAttribute::Part(Part::FabricationPanel)),
+                ("Coupon", _, 0) => Ok(FileAttribute::Part(Part::Coupon)),
+                ("Other", _, len) if len <= 1 => Ok(FileAttribute::Part(Part::Other(
+                    args
+                        .get(1)
+                        .ok_or(ContentError::InsufficientArguments)?
+                        .to_string(),
+                ))),
+                (arg, _, _) => Err(ContentError::UnsupportedPartType {
+                    part_type: arg.to_string(),
+                }),
+            }
         },
-        (".FileFunction", args_len) if args_len >= 2 => match attr_args[1] {
-            // FIXME use ContentError::InsufficientArguments when there aren't enough arguments, currently panics can occur
-
-            //
-            // Data Layers
-            //
-            "Copper" => Ok(FileAttribute::FileFunction(FileFunction::Copper {
-                layer: parse_layer(attr_args[2])?,
-                pos: parse_extended_position(attr_args[3])?,
-                copper_type: attr_args
-                    .get(4)
-                    .map(|value| parse_copper_type(value))
-                    .transpose()?,
-            })),
-            "Plated" => Ok(FileAttribute::FileFunction(FileFunction::Plated {
-                from_layer: parse_integer(attr_args[2])?,
-                to_layer: parse_integer(attr_args[3])?,
-                drill: parse_plated_drill(attr_args[4])?,
-                label: attr_args
-                    .get(5)
-                    .map(|value| parse_drill_route_type(value))
-                    .transpose()?,
-            })),
-            "NonPlated" => Ok(FileAttribute::FileFunction(FileFunction::NonPlated {
-                from_layer: parse_integer(attr_args[2])?,
-                to_layer: parse_integer(attr_args[3])?,
-                drill: parse_non_plated_drill(attr_args[4])?,
-                label: attr_args
-                    .get(5)
-                    .map(|value| parse_drill_route_type(value))
-                    .transpose()?,
-            })),
-            "Profile" => Ok(FileAttribute::FileFunction(FileFunction::Profile(
-                attr_args
-                    .get(2)
-                    .map(|value| parse_profile(value))
-                    .transpose()?,
-            ))),
-            "Soldermask" => with_side_and_optional_index!(SolderMask, attr_args),
-            "Legend" => with_side_and_optional_index!(Legend, attr_args),
-            "Component" => with_layer_and_side!(Component, attr_args),
-            "Paste" => with_side!(Paste, attr_args),
-            "Glue" => with_side!(Glue, attr_args),
-            "Carbonmask" => with_side_and_optional_index!(CarbonMask, attr_args),
-            "Goldmask" => with_side_and_optional_index!(GoldMask, attr_args),
-            "Heatsinkmask" => with_side_and_optional_index!(HeatsinkMask, attr_args),
-            "Peelablemask" => with_side_and_optional_index!(PeelableMask, attr_args),
-            "Silvermask" => with_side_and_optional_index!(SilverMask, attr_args),
-            "Tinmask" => with_side_and_optional_index!(TinMask, attr_args),
-            "Depthrout" => with_side!(DepthRoute, attr_args),
-            "Vcut" => with_optional_side!(VCut, attr_args),
-            "Viafill" => Ok(FileAttribute::FileFunction(FileFunction::ViaFill)),
-            "Pads" => with_side!(Pads, attr_args),
-            "Other" => with_string!(Other, attr_args),
-            //
-            // Drawing layers
-            //
-            "Drillmap" => Ok(FileAttribute::FileFunction(FileFunction::DrillMap)),
-            "FabricationDrawing" => Ok(FileAttribute::FileFunction(
-                FileFunction::FabricationDrawing,
-            )),
-            "Vcutmap" => Ok(FileAttribute::FileFunction(FileFunction::VCutMap)),
-            "AssemblyDrawing" => with_side!(AssemblyDrawing, attr_args),
-            "ArrayDrawing" => Ok(FileAttribute::FileFunction(FileFunction::ArrayDrawing)),
-            "OtherDrawing" => with_string!(OtherDrawing, attr_args),
-            _ => Err(ContentError::UnsupportedFileAttribute {
-                attribute_name: attr_args[1].to_string(),
-            }),
+        (".FileFunction", remaining_args, len) if len >= 1 => {
+            let (first,  remaining_args, remaining_len) = split_first_str(remaining_args);
+            match (first, remaining_args, remaining_len) {
+                //
+                // Data Layers
+                //
+                ("Copper", args, len) if len >= 2 && len <= 3 => Ok(FileAttribute::FileFunction(FileFunction::Copper {
+                    layer: parse_layer(args[0])?,
+                    pos: parse_extended_position(args[1])?,
+                    copper_type: args
+                        .get(2)
+                        .map(|value| parse_copper_type(value))
+                        .transpose()?,
+                })),
+                ("Plated", args, len) if len >= 3 && len <= 4  => Ok(FileAttribute::FileFunction(FileFunction::Plated {
+                    from_layer: parse_integer(args[0])?,
+                    to_layer: parse_integer(args[1])?,
+                    drill: parse_plated_drill(args[2])?,
+                    label: args
+                        .get(3)
+                        .map(|value| parse_drill_route_type(value))
+                        .transpose()?,
+                })),
+                ("NonPlated", args, len) if len >= 3 && len <= 4 => Ok(FileAttribute::FileFunction(FileFunction::NonPlated {
+                    from_layer: parse_integer(args[0])?,
+                    to_layer: parse_integer(args[1])?,
+                    drill: parse_non_plated_drill(args[2])?,
+                    label: args
+                        .get(3)
+                        .map(|value| parse_drill_route_type(value))
+                        .transpose()?,
+                })),
+                ("Profile", args, len) if len <= 1 => Ok(FileAttribute::FileFunction(FileFunction::Profile(
+                    args
+                        .get(0)
+                        .map(|value| parse_profile(value))
+                        .transpose()?,
+                ))),
+                ("Soldermask", args, len) if len <= 2 => with_side_and_optional_index!(SolderMask, args),
+                ("Legend", args, len) if len <= 2  => with_side_and_optional_index!(Legend, args),
+                ("Component", args, 2) => with_layer_and_side!(Component, args),
+                ("Paste", args, 1) => with_side!(Paste, args),
+                ("Glue", args, 1) => with_side!(Glue, args),
+                ("Carbonmask", args, len) if len <= 2  => with_side_and_optional_index!(CarbonMask, args),
+                ("Goldmask", args, len) if len <= 2  => with_side_and_optional_index!(GoldMask, args),
+                ("Heatsinkmask", args, len) if len <= 2  => with_side_and_optional_index!(HeatsinkMask, args),
+                ("Peelablemask", args, len) if len <= 2  => with_side_and_optional_index!(PeelableMask, args),
+                ("Silvermask", args, len) if len <= 2  => with_side_and_optional_index!(SilverMask, args),
+                ("Tinmask", args, len) if len <= 2  => with_side_and_optional_index!(TinMask, args),
+                ("Depthrout", args, 1) => with_side!(DepthRoute, args),
+                ("Vcut", args, len) if len <= 1 => with_optional_side!(VCut, args),
+                ("Viafill", _, 0) => Ok(FileAttribute::FileFunction(FileFunction::ViaFill)),
+                ("Pads", args, 1) => with_side!(Pads, args),
+                ("Other", args, 1) => with_string!(Other, args),
+                //
+                // Drawing layers
+                //
+                ("Drillmap", _, 0) => Ok(FileAttribute::FileFunction(FileFunction::DrillMap)),
+                ("FabricationDrawing", _, 0) => Ok(FileAttribute::FileFunction(
+                    FileFunction::FabricationDrawing,
+                )),
+                ("Vcutmap", _, 0) => Ok(FileAttribute::FileFunction(FileFunction::VCutMap)),
+                ("AssemblyDrawing", args, 1) => with_side!(AssemblyDrawing, args),
+                ("ArrayDrawing", _, 0) => Ok(FileAttribute::FileFunction(FileFunction::ArrayDrawing)),
+                ("OtherDrawing", args, 1) => with_string!(OtherDrawing, args),
+                (arg, _, _) => Err(ContentError::UnsupportedFileAttribute {
+                    attribute_name: arg.to_string(),
+                }),
+            }
         },
-        (".FilePolarity", 2) => match attr_args[1] {
-            "Positive" => Ok(FileAttribute::FilePolarity(FilePolarity::Positive)),
-            "Negative" => Ok(FileAttribute::FilePolarity(FilePolarity::Negative)),
-            _ => Err(ContentError::UnsupportedPolarityType {
-                polarity_type: attr_args[1].to_string(),
-            }),
+        (".FilePolarity", remaining_args, 1) => {
+            let (first,  remaining_args, remaining_len) = split_first_str(remaining_args);
+            match (first, remaining_args, remaining_len) {
+                ("Positive", _, 0) => Ok(FileAttribute::FilePolarity(FilePolarity::Positive)),
+                ("Negative", _, 0) => Ok(FileAttribute::FilePolarity(FilePolarity::Negative)),
+                (arg, _, _) => Err(ContentError::UnsupportedPolarityType {
+                    polarity_type: arg.to_string(),
+                }),
+            }
         },
-        (".SameCoordinates", args_len) if args_len >= 1 => Ok(FileAttribute::SameCoordinates(
-            attr_args
-                .get(1)
+        (".SameCoordinates", args, len) if len <= 1 => Ok(FileAttribute::SameCoordinates(
+            args
+                .get(0)
                 .map(|value| parse_ident(value))
                 .transpose()?,
         )),
-        (".CreationDate", 2) => Ok(FileAttribute::CreationDate(parse_date_time(attr_args[1])?)),
-        (".GenerationSoftware", args_len) if args_len >= 3 => {
+        (".CreationDate", args, 1) => Ok(FileAttribute::CreationDate(parse_date_time(args[0])?)),
+        (".GenerationSoftware", args, len) if len <= 3 => {
             Ok(FileAttribute::GenerationSoftware(GenerationSoftware {
-                vendor: attr_args[1].to_string(),
-                application: attr_args[2].to_string(),
-                version: attr_args.get(3).map(ToString::to_string),
+                vendor: args[0].to_string(),
+                application: args[1].to_string(),
+                version: args.get(2).map(ToString::to_string),
             }))
         }
-        (".ProjectId", 4) => Ok(FileAttribute::ProjectId {
-            id: attr_args[1].to_string(),
-            uuid: parse_uuid(attr_args[2])?,
-            revision: attr_args[3].to_string(),
+        (".ProjectId", args, 3) => Ok(FileAttribute::ProjectId {
+            id: args[0].to_string(),
+            uuid: parse_uuid(args[1])?,
+            revision: args[2].to_string(),
         }),
-        (".MD5", 2) => Ok(FileAttribute::Md5(attr_args[1].to_string())),
-        _ => Ok(FileAttribute::UserDefined {
-            name: attr_args[0].to_string(),
-            values: attr_args[1..].iter().map(|v| v.to_string()).collect(),
+        (".MD5", args, 1) => Ok(FileAttribute::Md5(args[0].to_string())),
+        (arg, args, _) => Ok(FileAttribute::UserDefined {
+            name: arg.to_string(),
+            values: args.iter().map(|v| v.to_string()).collect(),
         }),
     }
 }
@@ -1595,6 +1603,10 @@ fn parse_drill_route_type(arg: &str) -> Result<DrillRouteType, ContentError> {
             parameter: arg.to_string(),
         }),
     }
+}
+
+fn split_first_str<'a>(slice: &'a[&'a str]) -> (&'_ str, &'_ [&'_ str], usize) {
+    slice.split_first().map(|(head, tail)| (*head, tail, tail.len())).unwrap()
 }
 
 /// Parse an Aperture Attribute (%TA.<AttributeName>[,<AttributeValue>]*%) into Command
@@ -1765,47 +1777,43 @@ fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
 
     let raw_line = line.as_str().to_string();
     let attr_args = get_attr_args(line)?;
-    // log::debug!("TO ARGS: {:?}", attr_args);
-    if attr_args.len() >= 2 {
-        // we must have at least 1 field
-        match attr_args[0] {
-            ".CRot" => parse_cc_decimal!(Rotation, attr_args[1]),
-            ".CMfr" => parse_cc_string!(Manufacturer, attr_args[1]),
-            ".CMPN" => parse_cc_string!(MPN, attr_args[1]),
-            ".CVal" => parse_cc_string!(Value, attr_args[1]),
-            ".CMnt" => {
-                let component_mounting = match attr_args[1].to_lowercase().as_str() {
-                    "th" => Ok(ComponentMounting::ThroughHole),
-                    "smd" => Ok(ComponentMounting::SMD),
-                    "pressfit" => Ok(ComponentMounting::PressFit),
-                    "other" => Ok(ComponentMounting::Other),
-                    _ => Err(ContentError::InvalidParameter {
-                        parameter: attr_args[1].to_string(),
-                    }),
-                };
-                component_mounting.map(|component_mounting| {
-                    ExtendedCode::ObjectAttribute(ObjectAttribute::ComponentCharacteristics(
-                        ComponentCharacteristics::Mount(component_mounting),
-                    ))
-                    .into()
-                })
-            }
-            ".CFtp" => parse_cc_string!(Footprint, attr_args[1]),
-            ".CPgN" => parse_cc_string!(PackageName, attr_args[1]),
-            ".CPgD" => parse_cc_string!(PackageDescription, attr_args[1]),
-            ".CHgt" => parse_cc_decimal!(Height, attr_args[1]),
-            ".CLbN" => parse_cc_string!(LibraryName, attr_args[1]),
-            ".CLbD" => parse_cc_string!(LibraryDescription, attr_args[1]),
-            _ => Ok(ExtendedCode::ObjectAttribute(ObjectAttribute::UserDefined {
-                name: attr_args[0].to_string(),
-                values: attr_args[1..].iter().map(|v| v.to_string()).collect(),
+    log::trace!("TO ARGS: {:?}", attr_args);
+
+    let (first,  remaining_args, remaining_len) = split_first_str(&attr_args);
+
+    match (first, remaining_args, remaining_len) {
+        (".CRot", args, 1) => parse_cc_decimal!(Rotation, args[0]),
+        (".CMfr", args, 1) => parse_cc_string!(Manufacturer, args[0]),
+        (".CMPN", args, 1) => parse_cc_string!(MPN, args[0]),
+        (".CVal", args, 1) => parse_cc_string!(Value, args[0]),
+        (".CMnt", args, 1) => {
+            let component_mounting = match args[0].to_lowercase().as_str() {
+                "th" => Ok(ComponentMounting::ThroughHole),
+                "smd" => Ok(ComponentMounting::SMD),
+                "pressfit" => Ok(ComponentMounting::PressFit),
+                "other" => Ok(ComponentMounting::Other),
+                _ => Err(ContentError::InvalidParameter {
+                    parameter: args[0].to_string(),
+                }),
+            };
+            component_mounting.map(|component_mounting| {
+                ExtendedCode::ObjectAttribute(ObjectAttribute::ComponentCharacteristics(
+                    ComponentCharacteristics::Mount(component_mounting),
+                ))
+                .into()
             })
-            .into()),
         }
-    } else {
-        Err(ContentError::InvalidApertureAttribute {
-            aperture_attribute: raw_line,
+        (".CFtp", args, 1) => parse_cc_string!(Footprint, args[0]),
+        (".CPgN", args, 1) => parse_cc_string!(PackageName, args[0]),
+        (".CPgD", args, 1) => parse_cc_string!(PackageDescription, args[0]),
+        (".CHgt", args, 1) => parse_cc_decimal!(Height, args[0]),
+        (".CLbN", args, 1) => parse_cc_string!(LibraryName, args[0]),
+        (".CLbD", args, 1) => parse_cc_string!(LibraryDescription, args[0]),
+        (arg, args, _) => Ok(ExtendedCode::ObjectAttribute(ObjectAttribute::UserDefined {
+            name: arg.to_string(),
+            values: args.iter().map(|v| v.to_string()).collect(),
         })
+        .into()),
     }
 }
 
