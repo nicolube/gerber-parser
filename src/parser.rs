@@ -1863,21 +1863,10 @@ pub fn partial_coordinates_from_gerber(
     // we have the raw gerber string as int but now have to convert it to nano precision format
     // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
     let factor = (6u8 - fs.decimal) as u32;
-    let x = x_as_int.map(|value| value * 10i64.pow(factor));
-    let y = y_as_int.map(|value| value * 10i64.pow(factor));
+    let x = x_as_int.map(|value| CoordinateNumber::new( value * 10i64.pow(factor)));
+    let y = y_as_int.map(|value| CoordinateNumber::new( value * 10i64.pow(factor)));
 
-    match (x, y) {
-        (Some(x), Some(y)) => {
-            Coordinates::new(CoordinateNumber::new(x), CoordinateNumber::new(y), fs)
-        }
-        (None, Some(y)) => Coordinates::at_y(CoordinateNumber::new(y), fs),
-        (Some(x), None) => Coordinates::at_x(CoordinateNumber::new(x), fs),
-        (None, None) => Coordinates {
-            x: None,
-            y: None,
-            format: fs,
-        },
-    }
+    Coordinates::new(x, y, fs)
 }
 
 pub fn coordinates_offset_from_gerber(
