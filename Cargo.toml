@@ -13,6 +13,13 @@ license = "AGPL-3.0"
 homepage = "https://github.com/MakerPnP/gerber-parser"
 repository = "https://github.com/MakerPnP/gerber-parser"
 
+[features]
+# requiring env_logger 11.8 causes the MSRV to rise to 1.80, adding a feature so we can build without
+# env_logger is only a dev-dependency for tests, but cargo includes dev dependencies when building as well as testing.
+# dev-dependencies are not currently allowed to be optional.
+# see https://github.com/rust-lang/cargo/issues/4988
+env_logger = ["dep:env_logger"]
+
 [dependencies]
 # currently un-released, using latest gerber_types with updates to support macro expressions
 #gerber_types = "0.4.0"
@@ -29,6 +36,7 @@ lazy-regex = "3.4.1"
 
 # logging
 log = "0.4.27"
+env_logger = { version = "0.11.8", optional = true }
 
 [dev-dependencies]
-env_logger = "0.11.8"
+
