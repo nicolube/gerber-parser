@@ -10,10 +10,10 @@ use gerber_types::{
     CopperType, DCode, DrillFunction, DrillRouteType, ExtendedCode, ExtendedPosition,
     FiducialScope, FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode,
     GenerationSoftware, GerberDate, GerberError, IPC4761ViaProtection, Ident, InterpolationMode,
-    MCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger, NonPlatedDrill, ObjectAttribute,
-    Operation, OutlinePrimitive, Part, PlatedDrill, Polygon, PolygonPrimitive, Position, Profile,
-    QuadrantMode, Rectangular, SmdPadType, StepAndRepeat, ThermalPrimitive, Unit, Uuid,
-    VariableDefinition, VectorLinePrimitive,
+    MCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Net, NonPlatedDrill,
+    ObjectAttribute, Operation, OutlinePrimitive, Part, Pin, PlatedDrill, Polygon,
+    PolygonPrimitive, Position, Profile, QuadrantMode, Rectangular, SmdPadType, StepAndRepeat,
+    ThermalPrimitive, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
 };
 mod util;
 use gerber_parser::util::gerber_to_reader;
@@ -1127,6 +1127,16 @@ fn TO_attributes() {
     %FSLAX23Y23*%
     %MOMM*%
 
+    %TO.N,*%
+    %TO.N,N/C*%
+    %TO.N,Net1*%
+    %TO.N,Net1,Net2,Net3*%
+
+    %TO.P,U1,1*%
+    %TO.P,U1,EP,Thermal pad*%
+
+    %TO.C,R1*%
+
     %TO.CRot,359.99*%
     %TO.CMfr,AVX*%
     %TO.CMPN,42AA69*%
@@ -1157,6 +1167,39 @@ fn TO_attributes() {
     assert_eq!(
         filtered_commands,
         vec![
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::Net(Net::None)
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::Net(Net::NotConnected)
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::Net(Net::Connected(vec!["Net1".to_string()]))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::Net(Net::Connected(vec![
+                    "Net1".to_string(),
+                    "Net2".to_string(),
+                    "Net3".to_string()
+                ]))
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::Pin(Pin {
+                    refdes: "U1".to_string(),
+                    name: "1".to_string(),
+                    function: None,
+                })
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::Pin(Pin {
+                    refdes: "U1".to_string(),
+                    name: "EP".to_string(),
+                    function: Some("Thermal pad".to_string()),
+                })
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
+                ObjectAttribute::Component("R1".to_string())
+            ))),
             Ok(Command::ExtendedCode(ExtendedCode::ObjectAttribute(
                 ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::Rotation(
                     359.99
@@ -1749,37 +1792,6 @@ fn TF_file_attributes() {
     // then
     assert_eq!(filtered_commands, expected_commands,)
 }
-
-// #[test]
-// // TODO: make more exhaustive
-// fn TO_object_attributes() {
-//     let reader = gerber_to_reader("
-//     %FSLAX23Y23*%
-//     %MOMM*%
-//
-//     %ADD999C, 0.01*%
-//
-//     %TO.DoNotForget, 32, fragile*%
-//     %TO.N, 0.22*%
-//
-//     M02*
-//     ");
-//
-//     let filter_commands = |cmds:Vec<Command>| -> Vec<Command> {
-//         cmds.into_iter().filter(|cmd| match cmd {
-//                 Command::ExtendedCode(ExtendedCode::ObjectAttribute(_)) => true, _ => false}).collect()};
-//
-//     let fs =  CoordinateFormat::new(2,3);
-//     assert_eq!(filter_commands(parse_gerber(reader).commands), vec![
-//         Command::ExtendedCode(ExtendedCode::ObjectAttribute(ObjectAttribute{
-//             attribute_name: "DoNotForget".to_string(),
-//             values: vec!["32".to_string(), "fragile".to_string()]
-//         })),
-//         Command::ExtendedCode(ExtendedCode::ObjectAttribute(ObjectAttribute{
-//             attribute_name: "N".to_string(),
-//             values: vec!["0.22".to_string()]
-//         }))])
-// }
 
 #[test]
 #[should_panic]

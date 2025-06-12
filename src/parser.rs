@@ -12,8 +12,9 @@ use crate::ParseError;
 use gerber_types::{
     ApertureBlock, ComponentCharacteristics, ComponentDrill, ComponentMounting, ComponentOutline,
     CopperType, DrillFunction, DrillRouteType, ExtendedPosition, GenerationSoftware, GerberDate,
-    GerberError, IPC4761ViaProtection, Ident, NonPlatedDrill, ObjectAttribute, PartialGerberCode,
-    PlatedDrill, Position, Profile, ThermalPrimitive, Uuid, VariableDefinition,
+    GerberError, IPC4761ViaProtection, Ident, Net, NonPlatedDrill, ObjectAttribute,
+    PartialGerberCode, Pin, PlatedDrill, Position, Profile, ThermalPrimitive, Uuid,
+    VariableDefinition,
 };
 use lazy_regex::*;
 use regex::Regex;
@@ -1848,9 +1849,50 @@ fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
     let (first, remaining_args, remaining_len) = split_first_str(&attr_args);
 
     match (first, remaining_args, remaining_len) {
-        // TODO ".N"
-        // TODO ".P"
-        // TODO ".C"
+        (".N", args, len) if len >= 1 => {
+            // See 2024.05 - 5.6.13 ".N (Net)" "
+            let first = args.first().unwrap();
+            if first.is_empty() {
+                // ```
+                // The empty string, defined by %TO.N,*% identifies objects not connected to a net, such as
+                // tooling holes, text, logos, pads for component leads not connected to the component
+                // circuitry
+                // ```
+                Ok(ExtendedCode::ObjectAttribute(ObjectAttribute::Net(Net::None)).into())
+            } else {
+                if first.eq(&"N/C") {
+                    // ```
+                    // The name N/C, defined by %TO.N,N/C*%, identifies a single pad net, as an alternative to
+                    // giving each such net a unique name. (N/C stands for not-connected.)
+                    // ```
+                    Ok(
+                        ExtendedCode::ObjectAttribute(ObjectAttribute::Net(Net::NotConnected))
+                            .into(),
+                    )
+                } else {
+                    let names = args
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<String>>();
+                    Ok(
+                        ExtendedCode::ObjectAttribute(ObjectAttribute::Net(Net::Connected(names)))
+                            .into(),
+                    )
+                }
+            }
+        }
+        (".P", args, len) if len <= 3 => {
+            Ok(ExtendedCode::ObjectAttribute(ObjectAttribute::Pin(Pin {
+                refdes: args[0].to_string(),
+                name: args[1].to_string(),
+                function: args.get(2).map(ToString::to_string),
+            }))
+            .into())
+        }
+        (".C", args, 1) => Ok(ExtendedCode::ObjectAttribute(ObjectAttribute::Component(
+            args[0].to_string(),
+        ))
+        .into()),
         (".CRot", args, 1) => parse_cc_decimal!(Rotation, args[0]),
         (".CMfr", args, 1) => parse_cc_string!(Manufacturer, args[0]),
         (".CMPN", args, 1) => parse_cc_string!(MPN, args[0]),
