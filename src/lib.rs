@@ -1,7 +1,6 @@
 //! # Gerber-parser
 //!
-//! This is a simple parser in rust for Gerber file (or string). The underlying representation
-//! is built on the `gerber-types` crate.
+//! This is a parser in rust for Gerber file. The underlying representation is built on the `gerber-types` crate.
 //!
 //! Gerber files are the de-facto file format for PCB manufacturing, but are also used in other
 //! context, such as in microfabrication. It is an old format with a lot of baggage, but the
@@ -9,13 +8,19 @@
 //! there is an [online free viewer available](https://gerber-viewer.ucamco.com/) to check your designs,
 //! and the format is plaintext making it easy to work with.
 //!
-//! As the crate is still in the early version, expect significant changes over time, as both this
-//! crate and `gerber-types` will need to undergo changes.
+//! There are sibling crates to this crate, as follows:
+//!
+//! * gerber-types - underlying types for the parser - <https://github.com/MakerPnP/gerber-types>
+//! * gerber-viewer - a pure rust gerber viewer - <https://github.com/MakerPnP/gerber-viewer>
+//!
+//! This crate has matured, the API is simple and should be fairly stable now.  This crate is the primary driver to
+//! changes for the gerber-types crate.
+
+#[macro_use]
+mod macros;
 
 // Public modules
 pub mod util;
-#[macro_use]
-mod macros;
 
 // Private modules - we re-export the public types from them below
 mod document;
