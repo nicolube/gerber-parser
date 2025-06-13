@@ -14,6 +14,8 @@
 
 // Public modules
 pub mod util;
+#[macro_use]
+mod macros;
 
 // Private modules - we re-export the public types from them below
 mod document;

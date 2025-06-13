@@ -23,7 +23,7 @@ env_logger = ["dep:env_logger"]
 [dependencies]
 # currently un-released, using latest gerber_types with updates to support macro expressions
 #gerber_types = "0.4.0"
-gerber_types = { git = "https://github.com/MakerPnP/gerber-types.git", rev = "60caf637fb6f5efc3113a8eb2993d84cd47c9108"}
+gerber_types = { git = "https://github.com/MakerPnP/gerber-types.git", rev = "357215682b77093c3693efa4fe9d74076c1685fa"}
 #gerber_types = { path = "../gerber-types" }
 
 # errors
@@ -37,6 +37,7 @@ lazy-regex = "3.4.1"
 # logging
 log = "0.4.27"
 env_logger = { version = "0.11.8", optional = true }
+strum = "0.27.1"
 
 [dev-dependencies]
 

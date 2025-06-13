@@ -13,7 +13,7 @@ use gerber_types::{
     ApertureBlock, ComponentCharacteristics, ComponentDrill, ComponentMounting, ComponentOutline,
     CopperType, DrillFunction, DrillRouteType, ExtendedPosition, GenerationSoftware, GerberDate,
     GerberError, IPC4761ViaProtection, Ident, Net, NonPlatedDrill, ObjectAttribute,
-    PartialGerberCode, Pin, PlatedDrill, Position, Profile, ThermalPrimitive, Uuid,
+    Pin, PlatedDrill, Position, Profile, ThermalPrimitive, Uuid,
     VariableDefinition,
 };
 use lazy_regex::*;
@@ -1642,29 +1642,11 @@ fn split_first_str<'a>(slice: &'a [&'a str]) -> (&'a str, &'a [&'a str], usize) 
 fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
     use ContentError::UnsupportedApertureAttribute;
 
-    macro_rules! build_map {
-        ($name: ident, $t:ident ) => {
-            static $name: LazyLock<HashMap<String, $t>> = LazyLock::new(|| {
-                HashMap::from_iter(
-                    $t::values()
-                        .iter()
-                        .map(|&it| {
-                            let mut value: Vec<u8> = Vec::new();
-                            it.serialize_partial(&mut value).unwrap();
-
-                            (String::from_utf8(value).unwrap().to_lowercase(), it)
-                        })
-                        .collect::<Vec<(String, _)>>(),
-                )
-            });
-        };
-    }
-
-    build_map!(IPC_MAP, IPC4761ViaProtection);
-    build_map!(COMPONENT_DRILL_MAP, ComponentDrill);
-    build_map!(DRILL_FUNCTION_MAP, DrillFunction);
-    build_map!(SMD_PAD_MAP, SmdPadType);
-    build_map!(COMPONENT_OUTLINE_MAP, ComponentOutline);
+    build_enum_map!(IPC_MAP, IPC4761ViaProtection);
+    build_enum_map!(COMPONENT_DRILL_MAP, ComponentDrill);
+    build_enum_map!(DRILL_FUNCTION_MAP, DrillFunction);
+    build_enum_map!(SMD_PAD_MAP, SmdPadType);
+    build_enum_map!(COMPONENT_OUTLINE_MAP, ComponentOutline);
 
     fn lookup_in_map_optional<'a, T>(
         arg: Option<&&str>,
