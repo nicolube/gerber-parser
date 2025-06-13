@@ -1,7 +1,4 @@
-use gerber_parser::{
-    coordinates_from_gerber, coordinates_offset_from_gerber, parse, partial_coordinates_from_gerber,
-};
-use gerber_parser::{ContentError, GerberParserErrorWithContext};
+use gerber_parser::{parse, ContentError, GerberParserErrorWithContext};
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureBlock, ApertureDefinition, ApertureFunction,
     ApertureMacro, Circle, CirclePrimitive, Command, ComponentCharacteristics, ComponentDrill,
@@ -17,7 +14,10 @@ use gerber_types::{
 use std::collections::HashMap;
 use strum::VariantArray;
 mod util;
-use gerber_parser::util::gerber_to_reader;
+use gerber_parser::util::{
+    coordinates_from_gerber, coordinates_offset_from_gerber, gerber_to_reader,
+    partial_coordinates_from_gerber,
+};
 use util::testing::logging_init;
 
 /// This macro is used extensively by the tests to parse, then filter commands based on the closure $c which takes

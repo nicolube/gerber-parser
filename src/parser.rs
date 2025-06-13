@@ -2,18 +2,19 @@ use crate::document::GerberDoc;
 use crate::error::ContentError;
 use crate::gerber_types::{
     Aperture, ApertureAttribute, ApertureFunction, ApertureMacro, CenterLinePrimitive, Circle,
-    CirclePrimitive, Command, CoordinateFormat, CoordinateNumber, CoordinateOffset, Coordinates,
-    DCode, ExtendedCode, FiducialScope, FileAttribute, FileFunction, FilePolarity, FunctionCode,
-    GCode, InterpolationMode, MCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger,
-    Operation, OutlinePrimitive, Part, Polarity, Polygon, PolygonPrimitive, QuadrantMode,
-    Rectangular, SmdPadType, StepAndRepeat, Unit, VectorLinePrimitive,
+    CirclePrimitive, Command, CoordinateFormat, Coordinates, DCode, ExtendedCode, FiducialScope,
+    FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode, InterpolationMode, MCode,
+    MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Operation, OutlinePrimitive, Part,
+    Polarity, Polygon, PolygonPrimitive, QuadrantMode, Rectangular, SmdPadType, StepAndRepeat,
+    Unit, VectorLinePrimitive,
 };
+use crate::util::{attr_args, coordinates_offset_from_gerber, partial_coordinates_from_gerber};
 use crate::ParseError;
 use gerber_types::{
     ApertureBlock, ComponentCharacteristics, ComponentDrill, ComponentMounting, ComponentOutline,
     CopperType, DrillFunction, DrillRouteType, ExtendedPosition, GenerationSoftware, GerberDate,
-    GerberError, IPC4761ViaProtection, Ident, Mirroring, Net, NonPlatedDrill, ObjectAttribute, Pin,
-    PlatedDrill, Position, Profile, Rotation, Scaling, ThermalPrimitive, Uuid, VariableDefinition,
+    IPC4761ViaProtection, Ident, Mirroring, Net, NonPlatedDrill, ObjectAttribute, Pin, PlatedDrill,
+    Position, Profile, Rotation, Scaling, ThermalPrimitive, Uuid, VariableDefinition,
 };
 use lazy_regex::*;
 use regex::Regex;
@@ -1451,7 +1452,7 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
         };
     }
 
-    let attr_args = get_attr_args(line)?;
+    let attr_args = attr_args(line)?;
 
     log::trace!("TF args: {:?}, len: {}", attr_args, attr_args.len());
 
@@ -1752,7 +1753,7 @@ fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
     }
 
     let raw_line = line.as_str().to_string();
-    let attr_args = get_attr_args(line)?;
+    let attr_args = attr_args(line)?;
 
     log::trace!("TA ARGS: {:?}", attr_args);
     let (first, remaining_args, remaining_len) = split_first_str(&attr_args);
@@ -1905,7 +1906,7 @@ fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
         }};
     }
 
-    let attr_args = get_attr_args(line)?;
+    let attr_args = attr_args(line)?;
     log::trace!("TO ARGS: {:?}", attr_args);
 
     let (first, remaining_args, remaining_len) = split_first_str(&attr_args);
@@ -1992,7 +1993,7 @@ fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
 
 fn parse_delete_attribute(line: Chars) -> Result<Command, ContentError> {
     let raw_line = line.as_str().to_string();
-    let attr_args = get_attr_args(line)?;
+    let attr_args = attr_args(line)?;
     if attr_args.len() == 1 {
         Ok(ExtendedCode::DeleteAttribute(attr_args[0].to_string()).into())
     } else {
@@ -2000,92 +2001,6 @@ fn parse_delete_attribute(line: Chars) -> Result<Command, ContentError> {
             delete_attribute: raw_line,
         })
     }
-}
-
-/// Extract the individual elements (AttributeName and Fields) from Chars
-///
-/// Gerber spec 2024.05 5.1 Attributes overview:
-/// "In accordance with the general rule in 3.4.3 standard attribute names must begin with a dot ‘.’
-/// while user attribute names cannot begin with a dot."
-///
-/// The arguments of the attribute statement can have whitespace as this will be trimmed.
-/// `attribute_chars` argument must be the **trimmed line** from the gerber file
-/// with the **first three characters removed**. E.g. ".Part,single*%" not "%TF.Part,single*%"
-/// ```
-/// use gerber_parser::get_attr_args;
-/// let attribute_chars = ".DrillTolerance, 0.02, 0.01 *%".chars();
-///
-/// let arguments = get_attr_args(attribute_chars).unwrap();
-/// assert_eq!(arguments, vec![".DrillTolerance","0.02","0.01"])
-/// ```
-pub fn get_attr_args(mut attribute_chars: Chars) -> Result<Vec<&str>, ContentError> {
-    attribute_chars
-        .next_back()
-        .ok_or(ContentError::InvalidFileAttribute {
-            file_attribute: attribute_chars.as_str().to_string(),
-        })?;
-    attribute_chars
-        .next_back()
-        .ok_or(ContentError::InvalidFileAttribute {
-            file_attribute: attribute_chars.as_str().to_string(),
-        })?;
-    Ok(attribute_chars
-        .as_str()
-        .split(",")
-        .map(|el| el.trim())
-        .collect())
-}
-
-pub fn coordinates_from_gerber(
-    mut x_as_int: i64,
-    mut y_as_int: i64,
-    fs: CoordinateFormat,
-) -> Result<Coordinates, GerberError> {
-    // we have the raw gerber string as int but now have to convert it to nano precision format
-    // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
-    let factor = (6u8 - fs.decimal) as u32;
-    x_as_int *= 10i64.pow(factor);
-    y_as_int *= 10i64.pow(factor);
-    Ok(Coordinates::new(
-        CoordinateNumber::new(x_as_int).validate(&fs)?,
-        CoordinateNumber::new(y_as_int).validate(&fs)?,
-        fs,
-    ))
-}
-
-pub fn partial_coordinates_from_gerber(
-    x_as_int: Option<i64>,
-    y_as_int: Option<i64>,
-    fs: CoordinateFormat,
-) -> Result<Coordinates, GerberError> {
-    // we have the raw gerber string as int but now have to convert it to nano precision format
-    // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
-    let factor = (6u8 - fs.decimal) as u32;
-    let x = x_as_int
-        .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
-        .transpose()?;
-    let y = y_as_int
-        .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
-        .transpose()?;
-
-    Ok(Coordinates::new(x, y, fs))
-}
-
-pub fn coordinates_offset_from_gerber(
-    mut x_as_int: i64,
-    mut y_as_int: i64,
-    fs: CoordinateFormat,
-) -> Result<CoordinateOffset, GerberError> {
-    // we have the raw gerber string as int but now have to convert it to nano precision format
-    // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
-    let factor = (6u8 - fs.decimal) as u32;
-    x_as_int *= 10i64.pow(factor);
-    y_as_int *= 10i64.pow(factor);
-    Ok(CoordinateOffset::new(
-        CoordinateNumber::new(x_as_int).validate(&fs)?,
-        CoordinateNumber::new(y_as_int).validate(&fs)?,
-        fs,
-    ))
 }
 
 /// Split the line by commas and convert to a vector of strings
