@@ -128,6 +128,8 @@ pub enum ContentError {
         format: CoordinateFormat,
         cause: GerberError,
     },
+    #[error("No end of line found, expected line to end with '*%'. line: '{line}'")]
+    NoEndOfLine { line: String },
 }
 
 impl ContentError {

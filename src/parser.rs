@@ -8,7 +8,7 @@ use crate::gerber_types::{
     Polarity, Polygon, PolygonPrimitive, QuadrantMode, Rectangular, SmdPadType, StepAndRepeat,
     Unit, VectorLinePrimitive,
 };
-use crate::util::{attr_args, coordinates_offset_from_gerber, partial_coordinates_from_gerber};
+use crate::util::{coordinates_offset_from_gerber, partial_coordinates_from_gerber};
 use crate::ParseError;
 use gerber_types::{
     ApertureBlock, ComponentCharacteristics, ComponentDrill, ComponentMounting, ComponentOutline,
@@ -1452,7 +1452,8 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
         };
     }
 
-    let attr_args = attr_args(line)?;
+    let line = trim_attr_line(line)?;
+    let attr_args = attr_args(line);
 
     log::trace!("TF args: {:?}, len: {}", attr_args, attr_args.len());
 
@@ -1753,9 +1754,11 @@ fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
     }
 
     let raw_line = line.as_str().to_string();
-    let attr_args = attr_args(line)?;
+    let line = trim_attr_line(line)?;
+    let attr_args = attr_args(line);
 
     log::trace!("TA ARGS: {:?}", attr_args);
+
     let (first, remaining_args, remaining_len) = split_first_str(&attr_args);
     match (first, remaining_args, remaining_len) {
         (".AperFunction", remaining_args, len) if len >= 1 => {
@@ -1906,7 +1909,9 @@ fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
         }};
     }
 
-    let attr_args = attr_args(line)?;
+    let line = trim_attr_line(line)?;
+    let attr_args = attr_args(line);
+
     log::trace!("TO ARGS: {:?}", attr_args);
 
     let (first, remaining_args, remaining_len) = split_first_str(&attr_args);
@@ -1993,7 +1998,9 @@ fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
 
 fn parse_delete_attribute(line: Chars) -> Result<Command, ContentError> {
     let raw_line = line.as_str().to_string();
-    let attr_args = attr_args(line)?;
+    let line = trim_attr_line(line)?;
+    let attr_args = attr_args(line);
+
     if attr_args.len() == 1 {
         Ok(ExtendedCode::DeleteAttribute(attr_args[0].to_string()).into())
     } else {
@@ -2106,5 +2113,52 @@ fn parse_macro_integer(value: &str) -> Result<MacroInteger, ContentError> {
     } else {
         // it has to match one of the named captures.
         unreachable!()
+    }
+}
+
+fn attr_args(partial_line: Chars) -> Vec<&str> {
+    partial_line
+        .as_str()
+        .split(',')
+        .map(|el| el.trim())
+        .collect()
+}
+
+fn trim_attr_line(mut partial_line: Chars) -> Result<Chars, ContentError> {
+    let last = partial_line.next_back();
+    let second_last = partial_line.next_back();
+
+    match (second_last, last) {
+        (Some('*'), Some('%')) => Ok(partial_line),
+        _ => Err(ContentError::NoEndOfLine {
+            line: partial_line.as_str().to_string(),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod attr_args_tests {
+    use super::*;
+
+    #[test]
+    pub fn test_attr_args() {
+        let attribute_chars = "  .DrillTolerance  , 0.02  , 0.01   ".chars();
+        let arguments = attr_args(attribute_chars);
+        println!("arguments: {:?}", arguments);
+        assert_eq!(arguments, vec![".DrillTolerance", "0.02", "0.01"])
+    }
+
+    #[test]
+    pub fn test_ensure_line_end() {
+        let line_chars = "line content*%".chars();
+        let result = trim_attr_line(line_chars);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    pub fn test_ensure_line_end_missing() {
+        let line_chars = "line content".chars();
+        let result = trim_attr_line(line_chars);
+        assert!(result.is_err());
     }
 }
