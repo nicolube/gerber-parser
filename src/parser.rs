@@ -12,9 +12,8 @@ use crate::ParseError;
 use gerber_types::{
     ApertureBlock, ComponentCharacteristics, ComponentDrill, ComponentMounting, ComponentOutline,
     CopperType, DrillFunction, DrillRouteType, ExtendedPosition, GenerationSoftware, GerberDate,
-    GerberError, IPC4761ViaProtection, Ident, Net, NonPlatedDrill, ObjectAttribute,
-    Pin, PlatedDrill, Position, Profile, ThermalPrimitive, Uuid,
-    VariableDefinition,
+    GerberError, IPC4761ViaProtection, Ident, Mirroring, Net, NonPlatedDrill, ObjectAttribute, Pin,
+    PlatedDrill, Position, Profile, Rotation, Scaling, ThermalPrimitive, Uuid, VariableDefinition,
 };
 use lazy_regex::*;
 use regex::Regex;
@@ -30,6 +29,11 @@ use std::sync::LazyLock;
 //        constants for the capture names, this would improve the error messages too.
 static RE_UNITS: Lazy<Regex> = lazy_regex!(r"%MO(.*)\*%");
 static RE_COMMENT: Lazy<Regex> = lazy_regex!(r"G04 (.*)\*");
+static RE_LOAD_MIRRORING: Lazy<Regex> = lazy_regex!(r"%LM(?P<mirroring>N|X|Y|XY)\*%");
+
+// Note: scaling cannot be negative, or 0.
+static RE_LOAD_SCALING: Lazy<Regex> = lazy_regex!(r"%LS(?P<value>[0-9]+(?:\.[0-9]*)?)\*%");
+static RE_LOAD_ROTATION: Lazy<Regex> = lazy_regex!(r"%LR(?P<value>[+-]?[0-9]+(?:\.[0-9]*)?)\*%");
 static RE_FORMAT_SPEC: Lazy<Regex> = lazy_regex!(r"%FSLAX(.*)Y(.*)\*%");
 
 /// https://regex101.com/r/YNnrmK/1
@@ -310,11 +314,11 @@ fn parse_line<T: Read>(
                             _ => Err(ContentError::UnknownCommand {}),
                         },
                         // LM
-                        'M' => Err(ContentError::UnsupportedCommand {}),
+                        'M' => parse_load_mirroring(line),
                         // LR
-                        'R' => Err(ContentError::UnsupportedCommand {}),
+                        'R' => parse_load_rotation(line),
                         // LS
-                        'S' => Err(ContentError::UnsupportedCommand {}),
+                        'S' => parse_load_scaling(line),
                         _ => Err(ContentError::UnknownCommand {}),
                     },
                     'T' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
@@ -392,6 +396,82 @@ fn parse_interpolate_move_or_flash(
         '2' => parse_move_or_flash(line, gerber_doc, false), // D02
         '3' => parse_move_or_flash(line, gerber_doc, true), // D03
         _ => Err(ContentError::UnknownCommand {}),
+    }
+}
+
+fn parse_load_mirroring(line: &str) -> Result<Command, ContentError> {
+    build_enum_map!(LOAD_MIRRORING_MAP, Mirroring);
+
+    match RE_LOAD_MIRRORING.captures(line) {
+        Some(captures) => {
+            let value = captures
+                .name("mirroring")
+                .ok_or(ContentError::MissingRegexNamedCapture {
+                    regex: RE_LOAD_MIRRORING.clone(),
+                    capture_name: "mirroring".to_string(),
+                })?
+                .as_str();
+
+            let mirroring = LOAD_MIRRORING_MAP.get(&value.to_lowercase()).ok_or(
+                ContentError::InvalidParameter {
+                    parameter: value.to_string(),
+                },
+            )?;
+
+            Ok(ExtendedCode::LoadMirroring(*mirroring).into())
+        }
+        None => Err(ContentError::NoRegexMatch {
+            regex: RE_LOAD_MIRRORING.clone(),
+        }),
+    }
+}
+
+fn parse_load_scaling(line: &str) -> Result<Command, ContentError> {
+    match RE_LOAD_SCALING.captures(line) {
+        Some(captures) => {
+            let scale = captures
+                .name("value")
+                .ok_or(ContentError::MissingRegexNamedCapture {
+                    regex: RE_LOAD_SCALING.clone(),
+                    capture_name: "value".to_string(),
+                })?
+                .as_str()
+                .parse::<f64>()
+                .map_err(|cause| ContentError::ParseDecimalError { cause })?;
+
+            if scale <= 0.0 {
+                // Gerber spec 2025.05 - 4.9.5 Load Scaling (LS) "<Scale> A decimal > 0."
+                return Err(ContentError::InvalidParameter {
+                    parameter: scale.to_string(),
+                });
+            }
+
+            Ok(ExtendedCode::LoadScaling(Scaling { scale }).into())
+        }
+        None => Err(ContentError::NoRegexMatch {
+            regex: RE_LOAD_MIRRORING.clone(),
+        }),
+    }
+}
+
+fn parse_load_rotation(line: &str) -> Result<Command, ContentError> {
+    match RE_LOAD_ROTATION.captures(line) {
+        Some(captures) => {
+            let rotation = captures
+                .name("value")
+                .ok_or(ContentError::MissingRegexNamedCapture {
+                    regex: RE_LOAD_ROTATION.clone(),
+                    capture_name: "value".to_string(),
+                })?
+                .as_str()
+                .parse::<f64>()
+                .map_err(|cause| ContentError::ParseDecimalError { cause })?;
+
+            Ok(ExtendedCode::LoadRotation(Rotation { rotation }).into())
+        }
+        None => Err(ContentError::NoRegexMatch {
+            regex: RE_LOAD_ROTATION.clone(),
+        }),
     }
 }
 

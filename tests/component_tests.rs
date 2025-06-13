@@ -1,4 +1,3 @@
-use ::std::collections::HashMap;
 use gerber_parser::{
     coordinates_from_gerber, coordinates_offset_from_gerber, parse, partial_coordinates_from_gerber,
 };
@@ -10,11 +9,13 @@ use gerber_types::{
     CopperType, DCode, DrillFunction, DrillRouteType, ExtendedCode, ExtendedPosition,
     FiducialScope, FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode,
     GenerationSoftware, GerberDate, GerberError, IPC4761ViaProtection, Ident, InterpolationMode,
-    MCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Net, NonPlatedDrill,
-    ObjectAttribute, Operation, OutlinePrimitive, Part, Pin, PlatedDrill, Polygon,
-    PolygonPrimitive, Position, Profile, QuadrantMode, Rectangular, SmdPadType, StepAndRepeat,
-    ThermalPrimitive, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
+    MCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Mirroring, Net, NonPlatedDrill,
+    ObjectAttribute, Operation, OutlinePrimitive, Part, Pin, PlatedDrill, Polarity, Polygon,
+    PolygonPrimitive, Position, Profile, QuadrantMode, Rectangular, Rotation, Scaling, SmdPadType,
+    StepAndRepeat, ThermalPrimitive, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
 };
+use std::collections::HashMap;
+use strum::VariantArray;
 mod util;
 use gerber_parser::util::gerber_to_reader;
 use util::testing::logging_init;
@@ -548,6 +549,102 @@ fn omitted_coordinate() {
     )
 }
 
+// See gerber spec 2021-02, section 4.5
+#[test]
+fn test_load_polarity_scaling_mirroring_rotation() {
+    // given
+    let reader = gerber_to_reader(
+        r#"
+    %LPD*%
+    %LPC*%
+    %LMN*%
+    %LMX*%
+    %LMY*%
+    %LMXY*%
+    %LR0*%
+    %LR359.99*%
+    %LR-359.99*%
+    %LS0.5*%
+    %LS99.99*%
+    "#,
+    );
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::LoadPolarity(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::LoadMirroring(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::LoadScaling(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::LoadRotation(_)))
+    ));
+
+    // then
+    assert_eq_commands!(
+        filtered_commands,
+        vec![
+            Ok(Command::ExtendedCode(ExtendedCode::LoadPolarity(
+                Polarity::Dark
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::LoadPolarity(
+                Polarity::Clear
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::LoadMirroring(
+                Mirroring::None
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::LoadMirroring(
+                Mirroring::X
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::LoadMirroring(
+                Mirroring::Y
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::LoadMirroring(
+                Mirroring::XY
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::LoadRotation(
+                Rotation { rotation: 0.0 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::LoadRotation(
+                Rotation { rotation: 359.99 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::LoadRotation(
+                Rotation { rotation: -359.99 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::LoadScaling(Scaling {
+                scale: 0.5
+            }))),
+            Ok(Command::ExtendedCode(ExtendedCode::LoadScaling(Scaling {
+                scale: 99.99
+            }))),
+        ]
+    );
+}
+
+// See gerber spec 2021-02, section 4.5
+#[test]
+fn test_load_scaling_zero() {
+    // given
+    let reader = gerber_to_reader(
+        r#"
+    %LS0*%
+    "#,
+    );
+    // when
+    let doc = parse(reader).unwrap();
+    dump_commands(&doc.commands);
+
+    // then
+    let errors = doc.into_errors();
+
+    assert!(matches!(errors.first().unwrap(),
+        GerberParserErrorWithContext {
+            error: ContentError::InvalidParameter {
+                parameter,
+            },
+            line: Some((number, content)),
+        } if parameter.eq("0") && *number == 2 && content.eq("%LS0*%")
+    ));
+}
+
 /// Test Step and Repeat command (%SR*%)
 #[test]
 fn step_and_repeat() {
@@ -841,7 +938,7 @@ fn TA_aperture_attributes() {
         ($name:ident) => {{
             let mut result = vec![ApertureFunction::$name(None)];
             result.extend(
-                IPC4761ViaProtection::values()
+                <IPC4761ViaProtection as VariantArray>::VARIANTS
                     .iter()
                     .cloned()
                     .map(|value| ApertureFunction::$name(Some(value)))
