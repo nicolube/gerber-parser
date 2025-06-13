@@ -1,17 +1,24 @@
 [package]
 name = "gerber_parser"
 version = "0.2.0"
-edition = "2018"
+documentation = "https://docs.rs/gerber-parser"
+repository = "https://github.com/MakerPnP/gerber-parser"
+homepage = "https://github.com/MakerPnP/gerber-parser"
+license = "MIT OR Apache-2.0"
 authors = [
     "Nemo Andrea <nemoandrea@outlook.com>",
     "Dominic Clifton <me@dominicclifton.name>"
 ]
-description = "A simple gerber parser for the gerber-types crate"
-readme = "README.md" 
-documentation = "https://docs.rs/gerber-parser"
-license = "AGPL-3.0"
-homepage = "https://github.com/MakerPnP/gerber-parser"
-repository = "https://github.com/MakerPnP/gerber-parser"
+description = "A gerber parser for the gerber-types crate"
+readme = "README.md"
+keywords = ["gerber", "parser", "pcb", "rs274x", "eda"]
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE-*",
+]
+edition = "2018"
 
 [features]
 # requiring env_logger 11.8 causes the MSRV to rise to 1.80, adding a feature so we can build without
@@ -30,6 +37,9 @@ gerber_types = { git = "https://github.com/MakerPnP/gerber-types.git", rev = "35
 thiserror = "2.0.12"
 anyhow = "1.0.98"
 
+# enums
+strum = "0.27.1"
+
 # regular expressions
 regex = "1.11.1"
 lazy-regex = "3.4.1"
@@ -37,7 +47,7 @@ lazy-regex = "3.4.1"
 # logging
 log = "0.4.27"
 env_logger = { version = "0.11.8", optional = true }
-strum = "0.27.1"
+
 
 [dev-dependencies]
 
