@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use strum::VariantArray;
 mod util;
 use gerber_parser::util::{
-    coordinates_from_gerber, coordinates_offset_from_gerber, gerber_to_reader,
-    partial_coordinates_from_gerber,
+    coordinates_from_gerber, gerber_to_reader, partial_coordinates_from_gerber,
+    partial_coordinates_offset_from_gerber,
 };
 use util::testing::logging_init;
 
@@ -392,7 +392,7 @@ fn D01_interpolation_circular() {
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
                     coordinates_from_gerber(-1000, -30000, fs).unwrap(),
-                    Some(coordinates_offset_from_gerber(200, -5000, fs).unwrap())
+                    partial_coordinates_offset_from_gerber(Some(200), Some(-5000), fs).unwrap()
                 ))
             )))
         ]
@@ -2797,7 +2797,7 @@ fn diptrace_rounded_rectangle_pcb_outline() {
                 GCode::InterpolationMode(InterpolationMode::Linear)
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
-                DCode::Operation(Operation::Move(Coordinates::new(5, 15, format)))
+                DCode::Operation(Operation::Move(Some(Coordinates::new(5, 15, format))))
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::SelectAperture(12)
@@ -2807,7 +2807,7 @@ fn diptrace_rounded_rectangle_pcb_outline() {
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    Coordinates::new(0, 10, format),
+                    Some(Coordinates::new(0, 10, format)),
                     Some(CoordinateOffset::new(0, -5, format)),
                 ))
             ))),
@@ -2816,7 +2816,11 @@ fn diptrace_rounded_rectangle_pcb_outline() {
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    Coordinates::new::<Option<i32>, Option<i32>>(None, Some(5), format),
+                    Some(Coordinates::new::<Option<i32>, Option<i32>>(
+                        None,
+                        Some(5),
+                        format
+                    )),
                     None,
                 ))
             ))),
@@ -2825,7 +2829,7 @@ fn diptrace_rounded_rectangle_pcb_outline() {
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    Coordinates::new(5, 0, format),
+                    Some(Coordinates::new(5, 0, format)),
                     Some(CoordinateOffset::new(5, 0, format)),
                 ))
             ))),
@@ -2834,7 +2838,11 @@ fn diptrace_rounded_rectangle_pcb_outline() {
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    Coordinates::new::<Option<i32>, Option<i32>>(Some(15), None, format),
+                    Some(Coordinates::new::<Option<i32>, Option<i32>>(
+                        Some(15),
+                        None,
+                        format
+                    )),
                     None,
                 ))
             ))),
@@ -2843,7 +2851,7 @@ fn diptrace_rounded_rectangle_pcb_outline() {
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    Coordinates::new(20, 5, format),
+                    Some(Coordinates::new(20, 5, format)),
                     Some(CoordinateOffset::new(0, 5, format)),
                 ))
             ))),
@@ -2852,7 +2860,11 @@ fn diptrace_rounded_rectangle_pcb_outline() {
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    Coordinates::new::<Option<i32>, Option<i32>>(None, Some(10), format),
+                    Some(Coordinates::new::<Option<i32>, Option<i32>>(
+                        None,
+                        Some(10),
+                        format
+                    )),
                     None,
                 ))
             ))),
@@ -2861,7 +2873,7 @@ fn diptrace_rounded_rectangle_pcb_outline() {
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    Coordinates::new(15, 15, format),
+                    Some(Coordinates::new(15, 15, format)),
                     Some(CoordinateOffset::new(-5, 0, format)),
                 ))
             ))),
@@ -2870,7 +2882,11 @@ fn diptrace_rounded_rectangle_pcb_outline() {
             ))),
             Ok(Command::FunctionCode(FunctionCode::DCode(
                 DCode::Operation(Operation::Interpolate(
-                    Coordinates::new::<Option<i32>, Option<i32>>(Some(5), None, format),
+                    Some(Coordinates::new::<Option<i32>, Option<i32>>(
+                        Some(5),
+                        None,
+                        format
+                    )),
                     None,
                 ))
             ))),

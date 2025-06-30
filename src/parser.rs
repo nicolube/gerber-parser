@@ -2,13 +2,13 @@ use crate::document::GerberDoc;
 use crate::error::ContentError;
 use crate::gerber_types::{
     Aperture, ApertureAttribute, ApertureFunction, ApertureMacro, CenterLinePrimitive, Circle,
-    CirclePrimitive, Command, CoordinateFormat, Coordinates, DCode, ExtendedCode, FiducialScope,
-    FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode, InterpolationMode, MCode,
-    MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Operation, OutlinePrimitive, Part,
-    Polarity, Polygon, PolygonPrimitive, QuadrantMode, Rectangular, SmdPadType, StepAndRepeat,
-    Unit, VectorLinePrimitive,
+    CirclePrimitive, Command, CoordinateFormat, DCode, ExtendedCode, FiducialScope, FileAttribute,
+    FileFunction, FilePolarity, FunctionCode, GCode, InterpolationMode, MCode, MacroBoolean,
+    MacroContent, MacroDecimal, MacroInteger, Operation, OutlinePrimitive, Part, Polarity, Polygon,
+    PolygonPrimitive, QuadrantMode, Rectangular, SmdPadType, StepAndRepeat, Unit,
+    VectorLinePrimitive,
 };
-use crate::util::{coordinates_offset_from_gerber, partial_coordinates_from_gerber};
+use crate::util::{partial_coordinates_from_gerber, partial_coordinates_offset_from_gerber};
 use crate::ParseError;
 use gerber_types::{
     ApertureBlock, ComponentCharacteristics, ComponentDrill, ComponentMounting, ComponentOutline,
@@ -375,7 +375,6 @@ fn parse_line<T: Read>(
             Ok(vec![parse_aperture_selection_or_command(
                 line,
                 linechars.clone(),
-                gerber_doc,
             )])
         }
         'M' => Ok(vec![Ok(FunctionCode::MCode(MCode::EndOfFile).into())]),
@@ -1202,35 +1201,24 @@ fn parse_aperture_code(code_str: &str) -> Result<i32, ContentError> {
 fn parse_aperture_selection_or_command(
     line: &str,
     linechars: Chars,
-    gerber_doc: &GerberDoc,
 ) -> Result<Command, ContentError> {
     let aperture_str = linechars.as_str();
     if let Ok(aperture_code) = parse_aperture_code(aperture_str) {
         Ok(FunctionCode::DCode(DCode::SelectAperture(aperture_code)).into())
     } else {
-        parse_command(line, gerber_doc)
+        parse_command(line)
     }
 }
 
-fn parse_command(command_str: &str, gerber_doc: &GerberDoc) -> Result<Command, ContentError> {
+fn parse_command(command_str: &str) -> Result<Command, ContentError> {
     static RE_STANDALONE_D: Lazy<Regex> = lazy_regex!(r"D(0)?([1-3])\*");
     if let Some(captures) = RE_STANDALONE_D.captures(command_str) {
         let command_code = captures.get(2).unwrap().as_str();
         {
-            let format = gerber_doc
-                .format_specification
-                .ok_or(ContentError::OperationBeforeFormat {})?;
-
-            let coords = Coordinates {
-                x: None,
-                y: None,
-                format,
-            };
-
             let operation = match command_code {
-                "1" => Operation::Interpolate(coords, None),
-                "2" => Operation::Move(coords),
-                "3" => Operation::Flash(coords),
+                "1" => Operation::Interpolate(None, None),
+                "2" => Operation::Move(None),
+                "3" => Operation::Flash(None),
                 _ => unreachable!(),
             };
             Ok(Command::FunctionCode(FunctionCode::DCode(
@@ -1254,54 +1242,40 @@ fn parse_interpolation(line: &str, gerber_doc: &GerberDoc) -> Result<Command, Co
                 .get(2)
                 .map(|y| parse_coord::<i64>(y.as_str()))
                 .transpose()?;
+            let i_coord = regmatch
+                .get(3)
+                .map(|i| parse_coord::<i64>(i.as_str()))
+                .transpose()?;
+            let j_coord = regmatch
+                .get(4)
+                .map(|i| parse_coord::<i64>(i.as_str()))
+                .transpose()?;
 
-            if let Some((i_offset_raw, j_offset_raw)) = regmatch.get(3).zip(regmatch.get(4)) {
-                //  we have X,Y,I,J parameters and we are doing circular interpolation
-                let i_offset = parse_coord::<i64>(i_offset_raw.as_str())?;
-                let j_offset = parse_coord::<i64>(j_offset_raw.as_str())?;
+            let fs = gerber_doc
+                .format_specification
+                .ok_or(ContentError::OperationBeforeFormat {})?;
 
-                let fs = gerber_doc
-                    .format_specification
-                    .ok_or(ContentError::OperationBeforeFormat {})?;
+            let coordinates =
+                partial_coordinates_from_gerber(x_coord, y_coord, fs).map_err(|error| {
+                    ContentError::CoordinateFormatMismatch {
+                        format: fs,
+                        cause: error,
+                    }
+                })?;
 
-                let coordinates =
-                    partial_coordinates_from_gerber(x_coord, y_coord, fs).map_err(|error| {
-                        ContentError::CoordinateFormatMismatch {
-                            format: fs,
-                            cause: error,
-                        }
-                    })?;
+            let offset =
+                partial_coordinates_offset_from_gerber(i_coord, j_coord, fs).map_err(|error| {
+                    ContentError::CoordinateFormatMismatch {
+                        format: fs,
+                        cause: error,
+                    }
+                })?;
 
-                let offset =
-                    coordinates_offset_from_gerber(i_offset, j_offset, fs).map_err(|error| {
-                        ContentError::CoordinateFormatMismatch {
-                            format: fs,
-                            cause: error,
-                        }
-                    })?;
-
-                Ok(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(
-                    coordinates,
-                    Some(offset),
-                )))
-                .into())
-            } else {
-                let fs = gerber_doc
-                    .format_specification
-                    .ok_or(ContentError::OperationBeforeFormat {})?;
-
-                // linear interpolation, only X,Y parameters
-                Ok(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(
-                    partial_coordinates_from_gerber(x_coord, y_coord, fs).map_err(|error| {
-                        ContentError::CoordinateFormatMismatch {
-                            format: fs,
-                            cause: error,
-                        }
-                    })?,
-                    None,
-                )))
-                .into())
-            }
+            Ok(FunctionCode::DCode(DCode::Operation(Operation::Interpolate(
+                coordinates,
+                offset,
+            )))
+            .into())
         }
         None => Err(ContentError::NoRegexMatch {
             regex: RE_INTERPOLATION.clone(),

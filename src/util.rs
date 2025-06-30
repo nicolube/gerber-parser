@@ -33,24 +33,24 @@ pub fn coordinates_from_gerber(
     mut x_as_int: i64,
     mut y_as_int: i64,
     fs: CoordinateFormat,
-) -> Result<Coordinates, GerberError> {
+) -> Result<Option<Coordinates>, GerberError> {
     // we have the raw gerber string as int but now have to convert it to nano precision format
     // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
     let factor = (6u8 - fs.decimal) as u32;
     x_as_int *= 10i64.pow(factor);
     y_as_int *= 10i64.pow(factor);
-    Ok(Coordinates::new(
+    Ok(Some(Coordinates::new(
         CoordinateNumber::new(x_as_int).validate(&fs)?,
         CoordinateNumber::new(y_as_int).validate(&fs)?,
         fs,
-    ))
+    )))
 }
 
 pub fn partial_coordinates_from_gerber(
     x_as_int: Option<i64>,
     y_as_int: Option<i64>,
     fs: CoordinateFormat,
-) -> Result<Coordinates, GerberError> {
+) -> Result<Option<Coordinates>, GerberError> {
     // we have the raw gerber string as int but now have to convert it to nano precision format
     // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
     let factor = (6u8 - fs.decimal) as u32;
@@ -61,22 +61,31 @@ pub fn partial_coordinates_from_gerber(
         .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
         .transpose()?;
 
-    Ok(Coordinates::new(x, y, fs))
+    let coordinates = match (x, y) {
+        (None, None) => None,
+        (x, y) => Some(Coordinates::new(x, y, fs)),
+    };
+    Ok(coordinates)
 }
 
-pub fn coordinates_offset_from_gerber(
-    mut x_as_int: i64,
-    mut y_as_int: i64,
+pub fn partial_coordinates_offset_from_gerber(
+    x_as_int: Option<i64>,
+    y_as_int: Option<i64>,
     fs: CoordinateFormat,
-) -> Result<CoordinateOffset, GerberError> {
+) -> Result<Option<CoordinateOffset>, GerberError> {
     // we have the raw gerber string as int but now have to convert it to nano precision format
     // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
     let factor = (6u8 - fs.decimal) as u32;
-    x_as_int *= 10i64.pow(factor);
-    y_as_int *= 10i64.pow(factor);
-    Ok(CoordinateOffset::new(
-        CoordinateNumber::new(x_as_int).validate(&fs)?,
-        CoordinateNumber::new(y_as_int).validate(&fs)?,
-        fs,
-    ))
+    let x = x_as_int
+        .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
+        .transpose()?;
+    let y = y_as_int
+        .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
+        .transpose()?;
+
+    let coordinate_offset = match (x, y) {
+        (None, None) => None,
+        (x, y) => Some(CoordinateOffset::new(x, y, fs)),
+    };
+    Ok(coordinate_offset)
 }
