@@ -1,0 +1,25 @@
+# Changelog
+
+This project follows semantic versioning.
+
+Possible log types:
+
+- `[added]` for new features.
+- `[changed]` for changes in existing functionality.
+- `[deprecated]` for once-stable features removed in upcoming releases.
+- `[removed]` for deprecated features removed in this release.
+- `[fixed]` for any bug fixes.
+- `[security]` to invite users to upgrade in case of vulnerabilities.
+
+### v0.2.0 (2025-06-30)
+
+- [changed] API updates.
+- [changed] Updated support for attributes.
+- [added] Support for all macros.
+- [added] Support for all gerber commands supported by gerber-types 0.4.0.
+
+Note: due to the amount of changes, this changelog is brief, future changelogs should be more detailed.
+
+### v0.1.2 (2022-06-29) and older
+
+Unknown (previous maintainer @NemoAndrea had no changelog file)
