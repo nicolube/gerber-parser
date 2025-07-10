@@ -1,12 +1,13 @@
 use gerber_parser::{parse, ContentError, GerberParserErrorWithContext};
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureBlock, ApertureDefinition, ApertureFunction,
-    ApertureMacro, Circle, CirclePrimitive, Command, ComponentCharacteristics, ComponentDrill,
-    ComponentMounting, ComponentOutline, CoordinateFormat, CoordinateOffset, Coordinates,
-    CopperType, DCode, DrillFunction, DrillRouteType, ExtendedCode, ExtendedPosition,
+    ApertureMacro, AxisSelect, Circle, CirclePrimitive, Command, ComponentCharacteristics,
+    ComponentDrill, ComponentMounting, ComponentOutline, CoordinateFormat, CoordinateOffset,
+    Coordinates, CopperType, DCode, DrillFunction, DrillRouteType, ExtendedCode, ExtendedPosition,
     FiducialScope, FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode,
-    GenerationSoftware, GerberDate, GerberError, IPC4761ViaProtection, Ident, InterpolationMode,
-    MCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Mirroring, Net, NonPlatedDrill,
+    GenerationSoftware, GerberDate, GerberError, IPC4761ViaProtection, Ident, ImageMirroring,
+    ImageOffset, ImagePolarity, ImageRotation, ImageScaling, InterpolationMode, MCode,
+    MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Mirroring, Net, NonPlatedDrill,
     ObjectAttribute, Operation, OutlinePrimitive, Part, Pin, PlatedDrill, Polarity, Polygon,
     PolygonPrimitive, Position, Profile, QuadrantMode, Rectangular, Rotation, Scaling, SmdPadType,
     StepAndRepeat, ThermalPrimitive, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
@@ -3217,6 +3218,186 @@ fn librepcb_single_line_macro() {
                     aperture: Aperture::Macro("ROTATEDOBROUND16".to_string(), None)
                 }
             )))
+        ]
+    );
+    assert!(!filtered_commands.is_empty());
+}
+
+#[test]
+fn image_settings() {
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
+        r#"
+        %FSLAX66Y66*%
+        %MOMM*%
+
+        %ASAXBY*%
+        %ASAYBX*%
+
+        %IPPOS*%
+        %IPNEG*%
+
+        %IR0*%
+        %IR90*%
+        %IR180*%
+        %IR270*%
+
+        %MI*%
+        %MIA0B0*%
+        %MIA1*%
+        %MIA1B0*%
+        %MIB1*%
+        %MIA0B1*%
+        %MIA1B1*%
+
+        %OF*%
+        %OFA0.0001*%
+        %OFA999.99999*%
+        %OFB0.0001*%
+        %OFB999.99999*%
+        %OFA0.0001B0.0001*%
+        %OFA999.99999B999.99999*%
+        
+        %SF*%
+        %SFA0.0001*%
+        %SFA999.99999*%
+        %SFB0.0001*%
+        %SFB999.99999*%
+        %SFA0.0001B0.0001*%
+        %SFA999.99999B999.99999*%
+
+        M02*
+    "#,
+    );
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::ExtendedCode(ExtendedCode::AxisSelect(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::ImagePolarity(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::RotateImage(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::MirrorImage(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::OffsetImage(_)))
+            | Ok(Command::ExtendedCode(ExtendedCode::ScaleImage(_)))
+    ));
+
+    // then
+    assert_eq_commands!(
+        &filtered_commands,
+        &vec![
+            Ok(Command::ExtendedCode(ExtendedCode::AxisSelect(
+                AxisSelect::AXBY
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::AxisSelect(
+                AxisSelect::AYBX
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ImagePolarity(
+                ImagePolarity::Positive
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ImagePolarity(
+                ImagePolarity::Negative
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::RotateImage(
+                ImageRotation::None
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::RotateImage(
+                ImageRotation::CCW_90
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::RotateImage(
+                ImageRotation::CCW_180
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::RotateImage(
+                ImageRotation::CCW_270
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::MirrorImage(
+                ImageMirroring::None
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::MirrorImage(
+                ImageMirroring::None
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::MirrorImage(
+                ImageMirroring::A
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::MirrorImage(
+                ImageMirroring::A
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::MirrorImage(
+                ImageMirroring::B
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::MirrorImage(
+                ImageMirroring::B
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::MirrorImage(
+                ImageMirroring::AB
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::OffsetImage(
+                ImageOffset { a: 0.0, b: 0.0 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::OffsetImage(
+                ImageOffset { a: 0.0001, b: 0.0 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::OffsetImage(
+                ImageOffset {
+                    a: 999.99999,
+                    b: 0.0
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::OffsetImage(
+                ImageOffset { a: 0.0, b: 0.0001 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::OffsetImage(
+                ImageOffset {
+                    a: 0.0,
+                    b: 999.99999
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::OffsetImage(
+                ImageOffset {
+                    a: 0.0001,
+                    b: 0.0001
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::OffsetImage(
+                ImageOffset {
+                    a: 999.99999,
+                    b: 999.99999
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ScaleImage(
+                ImageScaling { a: 1.0, b: 1.0 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ScaleImage(
+                ImageScaling { a: 0.0001, b: 1.0 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ScaleImage(
+                ImageScaling {
+                    a: 999.99999,
+                    b: 1.0
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ScaleImage(
+                ImageScaling { a: 1.0, b: 0.0001 }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ScaleImage(
+                ImageScaling {
+                    a: 1.0,
+                    b: 999.99999
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ScaleImage(
+                ImageScaling {
+                    a: 0.0001,
+                    b: 0.0001
+                }
+            ))),
+            Ok(Command::ExtendedCode(ExtendedCode::ScaleImage(
+                ImageScaling {
+                    a: 999.99999,
+                    b: 999.99999
+                }
+            ))),
         ]
     );
     assert!(!filtered_commands.is_empty());

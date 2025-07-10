@@ -11,10 +11,12 @@ use crate::gerber_types::{
 use crate::util::{partial_coordinates_from_gerber, partial_coordinates_offset_from_gerber};
 use crate::ParseError;
 use gerber_types::{
-    ApertureBlock, ComponentCharacteristics, ComponentDrill, ComponentMounting, ComponentOutline,
-    CopperType, DrillFunction, DrillRouteType, ExtendedPosition, GenerationSoftware, GerberDate,
-    IPC4761ViaProtection, Ident, Mirroring, Net, NonPlatedDrill, ObjectAttribute, Pin, PlatedDrill,
-    Position, Profile, Rotation, Scaling, ThermalPrimitive, Uuid, VariableDefinition,
+    ApertureBlock, AxisSelect, ComponentCharacteristics, ComponentDrill, ComponentMounting,
+    ComponentOutline, CopperType, DrillFunction, DrillRouteType, ExtendedPosition,
+    GenerationSoftware, GerberDate, IPC4761ViaProtection, Ident, ImageMirroring, ImageOffset,
+    ImagePolarity, ImageRotation, ImageScaling, Mirroring, Net, NonPlatedDrill, ObjectAttribute,
+    Pin, PlatedDrill, Position, Profile, Rotation, Scaling, ThermalPrimitive, Uuid,
+    VariableDefinition,
 };
 use lazy_regex::*;
 use regex::Regex;
@@ -30,6 +32,14 @@ use std::sync::LazyLock;
 //        constants for the capture names, this would improve the error messages too.
 static RE_UNITS: Lazy<Regex> = lazy_regex!(r"%MO(.*)\*%");
 static RE_COMMENT: Lazy<Regex> = lazy_regex!(r"G04 (.*)\*");
+static RE_AXIS_SELECT: Lazy<Regex> = lazy_regex!(r"%AS(?P<axisselect>AXBY|AYBX)\*%");
+static RE_IMAGE_POLARITY: Lazy<Regex> = lazy_regex!(r"%IP(?P<polarity>POS|NEG)\*%");
+static RE_IMAGE_ROTATION: Lazy<Regex> = lazy_regex!(r"%IR(?P<rotation>0|90|180|270)\*%");
+static RE_IMAGE_MIRRORING: Lazy<Regex> = lazy_regex!(r"%MI(A(?P<a>0|1))?(B(?P<b>0|1))?\*%");
+static RE_IMAGE_OFFSET: Lazy<Regex> =
+    lazy_regex!(r"%OF(A(?P<a>[+-]?[0-9]+(?:\.[0-9]*)?))?(B(?P<b>[+-]?[0-9]+(?:\.[0-9]*)?))?\*%");
+static RE_IMAGE_SCALING: Lazy<Regex> =
+    lazy_regex!(r"%SF(A(?P<a>[+-]?[0-9]+(?:\.[0-9]*)?))?(B(?P<b>[+-]?[0-9]+(?:\.[0-9]*)?))?\*%");
 static RE_LOAD_MIRRORING: Lazy<Regex> = lazy_regex!(r"%LM(?P<mirroring>N|X|Y|XY)\*%");
 
 // Note: scaling cannot be negative, or 0.
@@ -254,12 +264,18 @@ fn parse_line<T: Read>(
         '%' => {
             Ok(vec![
                 match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                    'M' => match parse_units(line, gerber_doc) {
-                        Ok(units) => {
-                            gerber_doc.units = Some(units);
-                            Ok(Command::ExtendedCode(ExtendedCode::Unit(units)))
-                        }
-                        Err(e) => Err(e),
+                    'M' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        // MO
+                        'O' => match parse_units(line, gerber_doc) {
+                            Ok(units) => {
+                                gerber_doc.units = Some(units);
+                                Ok(Command::ExtendedCode(ExtendedCode::Unit(units)))
+                            }
+                            Err(e) => Err(e),
+                        },
+                        // MI
+                        'I' => parse_image_mirroring(line),
+                        _ => Err(ContentError::UnknownCommand {}),
                     },
                     'F' => match parse_format_spec(line, gerber_doc) {
                         Ok(format_spec) => {
@@ -303,6 +319,8 @@ fn parse_line<T: Read>(
                             )),
                             Err(err) => Err(err),
                         },
+                        // AS
+                        'S' => parse_axis_select(line),
                         _ => Err(ContentError::UnknownCommand {}),
                     },
                     'L' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
@@ -337,6 +355,13 @@ fn parse_line<T: Read>(
                             '*' => Ok(ExtendedCode::StepAndRepeat(StepAndRepeat::Close).into()),
                             _ => Err(ContentError::UnknownCommand {}),
                         },
+                        // SF
+                        'F' => parse_image_scaling(line),
+                        _ => Err(ContentError::UnknownCommand {}),
+                    },
+                    'O' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                        // OF
+                        'F' => parse_image_offset(line),
                         _ => Err(ContentError::UnknownCommand {}),
                     },
                     'I' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
@@ -356,8 +381,10 @@ fn parse_line<T: Read>(
                                 Err(e) => Err(e),
                             }
                         }
-                        'P' => Err(ContentError::UnsupportedCommand {}),
-                        // Image Polarity, basically useless, but used by fusion
+                        // IP
+                        'P' => parse_image_polarity(line),
+                        // IR
+                        'R' => parse_image_rotation(line),
                         _ => Err(ContentError::UnknownCommand {}),
                     },
                     _ => Err(ContentError::UnknownCommand {}),
@@ -379,6 +406,194 @@ fn parse_line<T: Read>(
         }
         'M' => Ok(vec![Ok(FunctionCode::MCode(MCode::EndOfFile).into())]),
         _ => Ok(vec![Err(ContentError::UnknownCommand {})]),
+    }
+}
+
+fn parse_image_mirroring(line: &str) -> Result<Command, ContentError> {
+    match RE_IMAGE_MIRRORING.captures(line) {
+        Some(captures) => {
+            let a = captures
+                .name("a")
+                .map(|a| {
+                    a.as_str()
+                        .parse::<u8>()
+                        .map_err(|e| ContentError::ParseIntegerError { cause: e })
+                })
+                .transpose()?
+                .unwrap_or(0);
+            let b = captures
+                .name("b")
+                .map(|b| {
+                    b.as_str()
+                        .parse::<u8>()
+                        .map_err(|e| ContentError::ParseIntegerError { cause: e })
+                })
+                .transpose()?
+                .unwrap_or(0);
+
+            let image_mirroring = match (a, b) {
+                (0, 0) => ImageMirroring::None,
+                (1, 0) => ImageMirroring::A,
+                (0, 1) => ImageMirroring::B,
+                (1, 1) => ImageMirroring::AB,
+                _ => {
+                    // only unreachable due to regex
+                    unreachable!()
+                }
+            };
+
+            Ok(ExtendedCode::MirrorImage(image_mirroring).into())
+        }
+        None => Err(ContentError::NoRegexMatch {
+            regex: RE_IMAGE_MIRRORING.clone(),
+        }),
+    }
+}
+
+fn parse_image_offset(line: &str) -> Result<Command, ContentError> {
+    const DEFAULT_OFFSET: f64 = 0.0;
+
+    match RE_IMAGE_OFFSET.captures(line) {
+        Some(captures) => {
+            let a = captures
+                .name("a")
+                .map(|a| {
+                    a.as_str()
+                        .parse::<f64>()
+                        .map_err(|e| ContentError::ParseDecimalError { cause: e })
+                })
+                .transpose()?
+                .unwrap_or(DEFAULT_OFFSET);
+
+            let b = captures
+                .name("b")
+                .map(|a| {
+                    a.as_str()
+                        .parse::<f64>()
+                        .map_err(|e| ContentError::ParseDecimalError { cause: e })
+                })
+                .transpose()?
+                .unwrap_or(DEFAULT_OFFSET);
+
+            Ok(ExtendedCode::OffsetImage(ImageOffset { a, b }).into())
+        }
+        None => Err(ContentError::NoRegexMatch {
+            regex: RE_IMAGE_OFFSET.clone(),
+        }),
+    }
+}
+
+fn parse_image_scaling(line: &str) -> Result<Command, ContentError> {
+    const DEFAULT_SCALING: f64 = 1.0;
+
+    match RE_IMAGE_SCALING.captures(line) {
+        Some(captures) => {
+            let a = captures
+                .name("a")
+                .map(|a| {
+                    a.as_str()
+                        .parse::<f64>()
+                        .map_err(|e| ContentError::ParseDecimalError { cause: e })
+                })
+                .transpose()?
+                .unwrap_or(DEFAULT_SCALING);
+
+            let b = captures
+                .name("b")
+                .map(|a| {
+                    a.as_str()
+                        .parse::<f64>()
+                        .map_err(|e| ContentError::ParseDecimalError { cause: e })
+                })
+                .transpose()?
+                .unwrap_or(DEFAULT_SCALING);
+
+            Ok(ExtendedCode::ScaleImage(ImageScaling { a, b }).into())
+        }
+        None => Err(ContentError::NoRegexMatch {
+            regex: RE_IMAGE_SCALING.clone(),
+        }),
+    }
+}
+
+fn parse_image_rotation(line: &str) -> Result<Command, ContentError> {
+    build_enum_map!(IMAGE_ROTATION, ImageRotation);
+
+    match RE_IMAGE_ROTATION.captures(line) {
+        Some(captures) => {
+            let value = captures
+                .name("rotation")
+                .ok_or(ContentError::MissingRegexNamedCapture {
+                    regex: RE_IMAGE_ROTATION.clone(),
+                    capture_name: "rotation".to_string(),
+                })?
+                .as_str();
+
+            let image_rotation = IMAGE_ROTATION.get(&value.to_lowercase()).ok_or(
+                ContentError::InvalidParameter {
+                    parameter: value.to_string(),
+                },
+            )?;
+
+            Ok(ExtendedCode::RotateImage(*image_rotation).into())
+        }
+        None => Err(ContentError::NoRegexMatch {
+            regex: RE_IMAGE_ROTATION.clone(),
+        }),
+    }
+}
+
+fn parse_image_polarity(line: &str) -> Result<Command, ContentError> {
+    build_enum_map!(IMAGE_POLARITY, ImagePolarity);
+
+    match RE_IMAGE_POLARITY.captures(line) {
+        Some(captures) => {
+            let value = captures
+                .name("polarity")
+                .ok_or(ContentError::MissingRegexNamedCapture {
+                    regex: RE_IMAGE_POLARITY.clone(),
+                    capture_name: "polarity".to_string(),
+                })?
+                .as_str();
+
+            let image_polarity = IMAGE_POLARITY.get(&value.to_lowercase()).ok_or(
+                ContentError::InvalidParameter {
+                    parameter: value.to_string(),
+                },
+            )?;
+
+            Ok(ExtendedCode::ImagePolarity(*image_polarity).into())
+        }
+        None => Err(ContentError::NoRegexMatch {
+            regex: RE_IMAGE_POLARITY.clone(),
+        }),
+    }
+}
+
+fn parse_axis_select(line: &str) -> Result<Command, ContentError> {
+    build_enum_map!(AXIS_SELECT_MAP, AxisSelect);
+
+    match RE_AXIS_SELECT.captures(line) {
+        Some(captures) => {
+            let value = captures
+                .name("axisselect")
+                .ok_or(ContentError::MissingRegexNamedCapture {
+                    regex: RE_AXIS_SELECT.clone(),
+                    capture_name: "axisselect".to_string(),
+                })?
+                .as_str();
+
+            let axis_select = AXIS_SELECT_MAP.get(&value.to_lowercase()).ok_or(
+                ContentError::InvalidParameter {
+                    parameter: value.to_string(),
+                },
+            )?;
+
+            Ok(ExtendedCode::AxisSelect(*axis_select).into())
+        }
+        None => Err(ContentError::NoRegexMatch {
+            regex: RE_AXIS_SELECT.clone(),
+        }),
     }
 }
 
