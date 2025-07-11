@@ -19,31 +19,31 @@ The gerber specification 2024.05 is the latest version of the Gerber file format
 
 ### Supported gerber features
 
-| Supported | Feature                                       | Notes                                           |
-|-----------|-----------------------------------------------|-------------------------------------------------|
-| ✅         | Comments (G04)                                |                                                 |
-| ✅         | Units (MO)                                    |                                                 |
-| ✅         | Format specification (FS)                     |                                                 |
-| ✅         | Aperture definition (AD)                      |                                                 |
-| ✅         | Standard aperture templates                   |                                                 |
-| ✅         | Aperture macros (AM)                          |                                                 |
-| ✅         | Select aperture (Dnn)                         |                                                 |
-| ✅         | Plot state (G01, G02, G03, G75)               |                                                 |
-| ✅         | Operations (D01, D02, D03)                    |                                                 |
-| ✅         | Transformations (LP, LM, LR, LS)              |                                                 |
-| ✅         | Regions (G36/G37)                             |                                                 |
-| ✅         | Block aperture (AB)                           |                                                 |
-| ✅         | Step repeat (SR)                              |                                                 |
-| ✅         | End-of-file (M02)                             |                                                 |
-| ✅         | File attributes (TF)                          |                                                 |
-| ✅         | Aperture attributes (TA)                      |                                                 |
-| ✅         | Object attributes (TO)                        |                                                 |
-| ✅         | Delete attribute (TD)                         |                                                 |
-| ✅         | Standard attributes                           | Full support, including .N, .P, .C, .CXxxx, etc |
-| ✅         | User defined attributes                       |                                                 |
-| ❌         | Comment attributes                            | See spec 2024.5 - 5.1.1, 'G04 #@! ...*          |
-| ✅         | Image Transformations (IP, MI, SF, OF, IR, AS | Yes, see below for details                      |
-| ✅         | Legacy/deprecated attributes                  | Partial                                         |
+| Supported | Feature                                        | Notes                                           |
+|-----------|------------------------------------------------|-------------------------------------------------|
+| ✅         | Comments (G04)                                 |                                                 |
+| ✅         | Units (MO)                                     |                                                 |
+| ✅         | Format specification (FS)                      |                                                 |
+| ✅         | Aperture definition (AD)                       |                                                 |
+| ✅         | Standard aperture templates                    |                                                 |
+| ✅         | Aperture macros (AM)                           |                                                 |
+| ✅         | Select aperture (Dnn)                          |                                                 |
+| ✅         | Plot state (G01, G02, G03, G75)                |                                                 |
+| ✅         | Operations (D01, D02, D03)                     |                                                 |
+| ✅         | Transformations (LP, LM, LR, LS)               |                                                 |
+| ✅         | Regions (G36/G37)                              |                                                 |
+| ✅         | Block aperture (AB)                            |                                                 |
+| ✅         | Step repeat (SR)                               |                                                 |
+| ✅         | End-of-file (M02)                              |                                                 |
+| ✅         | File attributes (TF)                           |                                                 |
+| ✅         | Aperture attributes (TA)                       |                                                 |
+| ✅         | Object attributes (TO)                         |                                                 |
+| ✅         | Delete attribute (TD)                          |                                                 |
+| ✅         | Standard attributes                            | Full support, including .N, .P, .C, .CXxxx, etc |
+| ✅         | User defined attributes                        |                                                 |
+| ❌         | Comment attributes                             | See spec 2024.5 - 5.1.1, 'G04 #@! ...*          |
+| ✅         | Image Transformations (IP, MI, SF, OF, IR, AS) | Yes, see below for details                      |
+| ✅         | Legacy/deprecated attributes                   | Partial                                         |
 
 Contributions to improve support welcomed!
 
@@ -94,7 +94,8 @@ https://github.com/MakerPnP/gerber-parser/network/dependents
   LibrePcb, etc.
 - 2025/05/05 - gerber-types crate transferred to the MakerPnP organization, primary maintainer is now Dominic Clifton
 - 2025/06/04 - gerber-parser crate transferred the repository to the MakerPnP organization, primary maintainer is now Dominic Clifton.
-- 2025/06/13 - All gerber commands are now supported. License changed to MIT or APACHE.
+- 2025/06/13 - All non-deprecated gerber commands are now supported. License changed to MIT or APACHE.
+- 2025/07/11 - Support for deprecated commands added.
 
 
 ## Authors
