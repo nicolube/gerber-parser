@@ -1707,7 +1707,7 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
                 //
                 // Data Layers
                 //
-                ("Copper", args, len) if len >= 2 && len <= 3 => {
+                ("Copper", args, len) if (2..=3).contains(&len) => {
                     Ok(FileAttribute::FileFunction(FileFunction::Copper {
                         layer: parse_layer(args[0])?,
                         pos: parse_extended_position(args[1])?,
@@ -1717,7 +1717,7 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
                             .transpose()?,
                     }))
                 }
-                ("Plated", args, len) if len >= 3 && len <= 4 => {
+                ("Plated", args, len) if (3..=4).contains(&len) => {
                     Ok(FileAttribute::FileFunction(FileFunction::Plated {
                         from_layer: parse_integer(args[0])?,
                         to_layer: parse_integer(args[1])?,
@@ -1728,7 +1728,7 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
                             .transpose()?,
                     }))
                 }
-                ("NonPlated", args, len) if len >= 3 && len <= 4 => {
+                ("NonPlated", args, len) if (3..=4).contains(&len) => {
                     Ok(FileAttribute::FileFunction(FileFunction::NonPlated {
                         from_layer: parse_integer(args[0])?,
                         to_layer: parse_integer(args[1])?,
@@ -1741,7 +1741,7 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
                 }
                 ("Profile", args, len) if len <= 1 => {
                     Ok(FileAttribute::FileFunction(FileFunction::Profile(
-                        args.get(0).map(|value| parse_profile(value)).transpose()?,
+                        args.first().map(|value| parse_profile(value)).transpose()?,
                     )))
                 }
                 ("Soldermask", args, len) if len <= 2 => {
@@ -1801,7 +1801,7 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
             }
         }
         (".SameCoordinates", args, len) if len <= 1 => Ok(FileAttribute::SameCoordinates(
-            args.get(0).map(|value| parse_ident(value)).transpose()?,
+            args.first().map(|value| parse_ident(value)).transpose()?,
         )),
         (".CreationDate", args, 1) => Ok(FileAttribute::CreationDate(parse_date_time(args[0])?)),
         (".GenerationSoftware", args, len) if len <= 3 => {
@@ -2007,12 +2007,12 @@ fn parse_aperture_attribute(line: Chars) -> Result<ApertureAttribute, ContentErr
                     // "Copper layers"
                     ("ComponentPad", _, 0) => ApertureFunction::ComponentPad,
                     ("SMDPad", args, 1) => {
-                        let value = lookup_in_map_required(args[0], &SMD_PAD_MAP)?.clone();
-                        ApertureFunction::SmdPad(value)
+                        let value = lookup_in_map_required(args[0], &SMD_PAD_MAP)?;
+                        ApertureFunction::SmdPad(*value)
                     }
                     ("BGAPad", args, 1) => {
-                        let value = lookup_in_map_required(args[0], &SMD_PAD_MAP)?.clone();
-                        ApertureFunction::BgaPad(value)
+                        let value = lookup_in_map_required(args[0], &SMD_PAD_MAP)?;
+                        ApertureFunction::BgaPad(*value)
                     }
                     ("ConnectorPad", _, 0) => ApertureFunction::ConnectorPad,
                     ("HeatsinkPad", _, 0) => ApertureFunction::HeatsinkPad,
@@ -2043,9 +2043,8 @@ fn parse_aperture_attribute(line: Chars) -> Result<ApertureAttribute, ContentErr
                     // "Component layers"
                     ("ComponentMain", _, 0) => ApertureFunction::ComponentMain,
                     ("ComponentOutline", args, 1) => {
-                        let value =
-                            lookup_in_map_required(args[0], &COMPONENT_OUTLINE_MAP)?.clone();
-                        ApertureFunction::ComponentOutline(value)
+                        let value = lookup_in_map_required(args[0], &COMPONENT_OUTLINE_MAP)?;
+                        ApertureFunction::ComponentOutline(*value)
                     }
                     ("ComponentPin", _, 0) => ApertureFunction::ComponentPin,
 
@@ -2126,20 +2125,18 @@ fn parse_object_attribute(line: Chars) -> Result<ObjectAttribute, ContentError> 
                 // circuitry
                 // ```
                 Ok(ObjectAttribute::Net(Net::None))
+            } else if first.eq(&"N/C") {
+                // ```
+                // The name N/C, defined by %TO.N,N/C*%, identifies a single pad net, as an alternative to
+                // giving each such net a unique name. (N/C stands for not-connected.)
+                // ```
+                Ok(ObjectAttribute::Net(Net::NotConnected))
             } else {
-                if first.eq(&"N/C") {
-                    // ```
-                    // The name N/C, defined by %TO.N,N/C*%, identifies a single pad net, as an alternative to
-                    // giving each such net a unique name. (N/C stands for not-connected.)
-                    // ```
-                    Ok(ObjectAttribute::Net(Net::NotConnected))
-                } else {
-                    let names = args
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<String>>();
-                    Ok(ObjectAttribute::Net(Net::Connected(names)))
-                }
+                let names = args
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<String>>();
+                Ok(ObjectAttribute::Net(Net::Connected(names)))
             }
         }
         (".P", args, len) if len <= 3 => Ok(ObjectAttribute::Pin(Pin {
