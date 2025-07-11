@@ -11,12 +11,12 @@ use crate::gerber_types::{
 use crate::util::{partial_coordinates_from_gerber, partial_coordinates_offset_from_gerber};
 use crate::ParseError;
 use gerber_types::{
-    ApertureBlock, AxisSelect, ComponentCharacteristics, ComponentDrill, ComponentMounting,
-    ComponentOutline, CopperType, DrillFunction, DrillRouteType, ExtendedPosition,
-    GenerationSoftware, GerberDate, IPC4761ViaProtection, Ident, ImageMirroring, ImageOffset,
-    ImagePolarity, ImageRotation, ImageScaling, Mirroring, Net, NonPlatedDrill, ObjectAttribute,
-    Pin, PlatedDrill, Position, Profile, Rotation, Scaling, ThermalPrimitive, Uuid,
-    VariableDefinition,
+    ApertureBlock, AxisSelect, CommentContent, ComponentCharacteristics, ComponentDrill,
+    ComponentMounting, ComponentOutline, CopperType, DrillFunction, DrillRouteType,
+    ExtendedPosition, GenerationSoftware, GerberDate, IPC4761ViaProtection, Ident, ImageMirroring,
+    ImageName, ImageOffset, ImagePolarity, ImageRotation, ImageScaling, Mirroring, Net,
+    NonPlatedDrill, ObjectAttribute, Pin, PlatedDrill, Position, Profile, Rotation, Scaling,
+    StandardComment, ThermalPrimitive, Uuid, VariableDefinition,
 };
 use lazy_regex::*;
 use regex::Regex;
@@ -31,7 +31,7 @@ use std::sync::LazyLock;
 // FUTURE using named captures in all regular expressions would be nice, this would enable the use of string
 //        constants for the capture names, this would improve the error messages too.
 static RE_UNITS: Lazy<Regex> = lazy_regex!(r"%MO(.*)\*%");
-static RE_COMMENT: Lazy<Regex> = lazy_regex!(r"G04 (.*)\*");
+static RE_COMMENT: Lazy<Regex> = lazy_regex!(r"G04 ((#@! (?P<standard>.*))|(?P<string>.*))\*");
 static RE_AXIS_SELECT: Lazy<Regex> = lazy_regex!(r"%AS(?P<axisselect>AXBY|AYBX)\*%");
 static RE_IMAGE_POLARITY: Lazy<Regex> = lazy_regex!(r"%IP(?P<polarity>POS|NEG)\*%");
 static RE_IMAGE_ROTATION: Lazy<Regex> = lazy_regex!(r"%IR(?P<rotation>0|90|180|270)\*%");
@@ -341,11 +341,25 @@ fn parse_line<T: Read>(
                         _ => Err(ContentError::UnknownCommand {}),
                     },
                     'T' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                        'F' => parse_file_attribute(linechars.clone())
-                            .map(|file_attr| ExtendedCode::FileAttribute(file_attr).into()),
-                        'A' => parse_aperture_attribute(linechars.clone()),
+                        'F' => {
+                            linechars = trim_attr_line(linechars)?;
+
+                            parse_file_attribute(linechars.clone())
+                                .map(|attr| ExtendedCode::FileAttribute(attr).into())
+                        }
+                        'A' => {
+                            linechars = trim_attr_line(linechars)?;
+
+                            parse_aperture_attribute(linechars.clone())
+                                .map(|attr| ExtendedCode::ApertureAttribute(attr).into())
+                        }
+                        'O' => {
+                            linechars = trim_attr_line(linechars)?;
+
+                            parse_object_attribute(linechars.clone())
+                                .map(|attr| ExtendedCode::ObjectAttribute(attr).into())
+                        }
                         'D' => parse_delete_attribute(linechars.clone()),
-                        'O' => parse_object_attribute(linechars.clone()),
                         _ => Err(ContentError::UnknownCommand {}),
                     },
                     'S' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
@@ -366,17 +380,11 @@ fn parse_line<T: Read>(
                     },
                     'I' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
                         'N' => {
-                            // Image Name, 8.1.3. Deprecated, but still used by fusion 360.
+                            // Image Name, 8.1.3. Deprecated, but still used by fusion 360, etc.
                             match parse_image_name(line, gerber_doc) {
                                 Ok(name) => {
                                     gerber_doc.image_name = Some(name.clone());
-                                    // Because `gerber-types` does not support image name,
-                                    // we save it in the doc and list it as a comment.
-                                    // The gerber spec also says it can be treated as a comment.
-                                    Ok(FunctionCode::GCode(GCode::Comment(format!(
-                                        "Image Name: {name}"
-                                    )))
-                                    .into())
+                                    Ok(ExtendedCode::ImageName(ImageName { name }).into())
                                 }
                                 Err(e) => Err(e),
                             }
@@ -690,18 +698,52 @@ fn parse_load_rotation(line: &str) -> Result<Command, ContentError> {
     }
 }
 
-/// parse a Gerber Comment (e.g. 'G04 This is a comment*')
+/// Parse a Gerber Comment, there are two types, string and standard
+///
+/// String: `G04 (String)*`
+/// Standard: `G04 #@! (Attribute)*`
 fn parse_comment(line: &str) -> Result<Command, ContentError> {
     match RE_COMMENT.captures(line) {
         Some(regmatch) => {
-            let comment = regmatch
-                .get(1)
-                .ok_or(ContentError::MissingRegexCapture {
-                    regex: RE_COMMENT.clone(),
-                    capture_index: 1,
-                })?
-                .as_str();
-            Ok(FunctionCode::GCode(GCode::Comment(comment.to_string())).into())
+            let string_content = regmatch
+                .name("string")
+                .map(|string| string.as_str().to_string());
+
+            let standard_content = regmatch
+                .name("standard")
+                .map(|standard| {
+                    let mut comment_chars = standard.as_str().chars();
+                    match comment_chars
+                        .next()
+                        .ok_or(ContentError::UnknownCommand {})?
+                    {
+                        'T' => match comment_chars
+                            .next()
+                            .ok_or(ContentError::UnknownCommand {})?
+                        {
+                            'F' => parse_file_attribute(comment_chars.clone())
+                                .map(StandardComment::FileAttribute),
+                            'A' => parse_aperture_attribute(comment_chars.clone())
+                                .map(StandardComment::ApertureAttribute),
+                            'O' => parse_object_attribute(comment_chars.clone())
+                                .map(StandardComment::ObjectAttribute),
+                            _ => Err(ContentError::UnknownCommand {}),
+                        },
+                        _ => Err(ContentError::UnknownCommand {}),
+                    }
+                })
+                .transpose()?;
+
+            let content = match (string_content, standard_content) {
+                (Some(string), None) => CommentContent::String(string),
+                (None, Some(standard)) => CommentContent::Standard(standard),
+
+                _ => {
+                    // only unreachable due to regex
+                    unreachable!()
+                }
+            };
+            Ok(FunctionCode::GCode(GCode::Comment(content)).into())
         }
         None => Err(ContentError::NoRegexMatch {
             regex: RE_COMMENT.clone(),
@@ -1590,12 +1632,7 @@ fn parse_step_repeat_open(line: &str) -> Result<Command, ContentError> {
 
 /// Parse an Aperture Attribute (%TF.<AttributeName>[,<AttributeValue>]*%) into Command
 ///
-/// For now we consider two types of TA statements:
-/// 1. Aperture Function (AperFunction) with field: String
-/// 2. Drill tolerance (DrillTolerance) with fields: [1] num [2] num
-/// 3. Anything else goes into UserDefined attribute.
-///
-/// ⚠️ This parsing statement needs a lot of tests and validation at the current stage!
+/// ⚠️ This parsing statement needs a lot of tests and validation!
 fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
     macro_rules! with_side_and_optional_index {
         ($name:ident, $args:ident) => {
@@ -1641,7 +1678,6 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
         };
     }
 
-    let line = trim_attr_line(line)?;
     let attr_args = attr_args(line);
 
     log::trace!("TF args: {:?}, len: {}", attr_args, attr_args.len());
@@ -1904,13 +1940,8 @@ fn split_first_str<'a>(slice: &'a [&'a str]) -> (&'a str, &'a [&'a str], usize) 
 
 /// Parse an Aperture Attribute (%TA.<AttributeName>[,<AttributeValue>]*%) into Command
 ///
-/// We consider three types of TA statements:
-/// 1. Aperture Function (AperFunction)
-/// 2. Drill tolerance (DrillTolerance)
-/// 3. Anything else goes into UserDefined attribute.
-///
-/// ⚠️ This parsing statement needs a lot of tests and validation at the current stage!
-fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
+/// ⚠️ This parsing statement needs a lot of tests and validation!
+fn parse_aperture_attribute(line: Chars) -> Result<ApertureAttribute, ContentError> {
     use ContentError::UnsupportedApertureAttribute;
 
     build_enum_map!(IPC_MAP, IPC4761ViaProtection);
@@ -1943,7 +1974,6 @@ fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
     }
 
     let raw_line = line.as_str().to_string();
-    let line = trim_attr_line(line)?;
     let attr_args = attr_args(line);
 
     log::trace!("TA ARGS: {:?}", attr_args);
@@ -1952,153 +1982,133 @@ fn parse_aperture_attribute(line: Chars) -> Result<Command, ContentError> {
     match (first, remaining_args, remaining_len) {
         (".AperFunction", remaining_args, len) if len >= 1 => {
             let (first, remaining_args, remaining_len) = split_first_str(remaining_args);
-            Ok(
-                ExtendedCode::ApertureAttribute(ApertureAttribute::ApertureFunction(
-                    match (first, remaining_args, remaining_len) {
-                        // "Drill and rout layers"
-                        ("ViaDrill", args, len) if len <= 1 => {
-                            let function = lookup_in_map_optional(args.first(), &IPC_MAP)?.cloned();
+            Ok(ApertureAttribute::ApertureFunction(
+                match (first, remaining_args, remaining_len) {
+                    // "Drill and rout layers"
+                    ("ViaDrill", args, len) if len <= 1 => {
+                        let function = lookup_in_map_optional(args.first(), &IPC_MAP)?.cloned();
 
-                            ApertureFunction::ViaDrill(function)
-                        }
-                        ("BackDrill", _, 0) => ApertureFunction::BackDrill,
-                        ("ComponentDrill", args, len) if len <= 1 => {
-                            let function =
-                                lookup_in_map_optional(args.first(), &COMPONENT_DRILL_MAP)?
-                                    .cloned();
-                            ApertureFunction::ComponentDrill { function }
-                        }
-                        ("MechanicalDrill", args, len) if len <= 1 => {
-                            let function =
-                                lookup_in_map_optional(args.first(), &DRILL_FUNCTION_MAP)?.cloned();
-                            ApertureFunction::MechanicalDrill { function }
-                        }
-                        ("CastellatedDrill", _, 0) => ApertureFunction::CastellatedDrill,
-                        ("OtherDrill", args, 1) => {
-                            ApertureFunction::OtherDrill(args[0].to_string())
-                        }
+                        ApertureFunction::ViaDrill(function)
+                    }
+                    ("BackDrill", _, 0) => ApertureFunction::BackDrill,
+                    ("ComponentDrill", args, len) if len <= 1 => {
+                        let function =
+                            lookup_in_map_optional(args.first(), &COMPONENT_DRILL_MAP)?.cloned();
+                        ApertureFunction::ComponentDrill { function }
+                    }
+                    ("MechanicalDrill", args, len) if len <= 1 => {
+                        let function =
+                            lookup_in_map_optional(args.first(), &DRILL_FUNCTION_MAP)?.cloned();
+                        ApertureFunction::MechanicalDrill { function }
+                    }
+                    ("CastellatedDrill", _, 0) => ApertureFunction::CastellatedDrill,
+                    ("OtherDrill", args, 1) => ApertureFunction::OtherDrill(args[0].to_string()),
 
-                        // "Copper layers"
-                        ("ComponentPad", _, 0) => ApertureFunction::ComponentPad,
-                        ("SMDPad", args, 1) => {
-                            let value = lookup_in_map_required(args[0], &SMD_PAD_MAP)?.clone();
-                            ApertureFunction::SmdPad(value)
-                        }
-                        ("BGAPad", args, 1) => {
-                            let value = lookup_in_map_required(args[0], &SMD_PAD_MAP)?.clone();
-                            ApertureFunction::BgaPad(value)
-                        }
-                        ("ConnectorPad", _, 0) => ApertureFunction::ConnectorPad,
-                        ("HeatsinkPad", _, 0) => ApertureFunction::HeatsinkPad,
-                        ("ViaPad", _, 0) => ApertureFunction::ViaPad,
-                        ("TestPad", _, 0) => ApertureFunction::TestPad,
-                        ("CastellatedPad", _, 0) => ApertureFunction::CastellatedPad,
-                        ("FiducialPad", args, 1) => match args[0] {
-                            "Local" => ApertureFunction::FiducialPad(FiducialScope::Local),
-                            "Global" => ApertureFunction::FiducialPad(FiducialScope::Global),
-                            "Panel" => ApertureFunction::FiducialPad(FiducialScope::Panel),
-                            _ => {
-                                return Err(UnsupportedApertureAttribute {
-                                    aperture_attribute: raw_line,
-                                })
-                            }
-                        },
-                        ("ThermalReliefPad", _, 0) => ApertureFunction::ThermalReliefPad,
-                        ("WasherPad", _, 0) => ApertureFunction::WasherPad,
-                        ("AntiPad", _, 0) => ApertureFunction::AntiPad,
-                        ("OtherPad", args, 1) => ApertureFunction::OtherPad(args[0].to_string()),
-                        ("Conductor", _, 0) => ApertureFunction::Conductor,
-                        ("EtchedComponent", _, 0) => ApertureFunction::EtchedComponent,
-                        ("NonConductor", _, 0) => ApertureFunction::NonConductor,
-                        ("CopperBalancing", _, 0) => ApertureFunction::CopperBalancing,
-                        ("Border", _, 0) => ApertureFunction::Border,
-                        ("OtherCopper", args, 1) => {
-                            ApertureFunction::OtherCopper(args[0].to_string())
-                        }
-
-                        // "Component layers"
-                        ("ComponentMain", _, 0) => ApertureFunction::ComponentMain,
-                        ("ComponentOutline", args, 1) => {
-                            let value =
-                                lookup_in_map_required(args[0], &COMPONENT_OUTLINE_MAP)?.clone();
-                            ApertureFunction::ComponentOutline(value)
-                        }
-                        ("ComponentPin", _, 0) => ApertureFunction::ComponentPin,
-
-                        // "All data layers"
-                        ("Profile", _, 0) => ApertureFunction::Profile,
-                        ("NonMaterial", _, 0) => ApertureFunction::NonMaterial,
-                        ("Material", _, 0) => ApertureFunction::Material,
-                        ("Other", args, 1) => ApertureFunction::Other(args[0].to_string()),
-
-                        // "Deprecated" (not in 2024.05 - 5.6.10 ".AperFunction")
-                        ("Slot", _, 0) => ApertureFunction::Slot,
-                        ("CutOut", _, 0) => ApertureFunction::CutOut,
-                        ("Cavity", _, 0) => ApertureFunction::Cavity,
-                        ("Drawing", _, 0) => ApertureFunction::Drawing,
+                    // "Copper layers"
+                    ("ComponentPad", _, 0) => ApertureFunction::ComponentPad,
+                    ("SMDPad", args, 1) => {
+                        let value = lookup_in_map_required(args[0], &SMD_PAD_MAP)?.clone();
+                        ApertureFunction::SmdPad(value)
+                    }
+                    ("BGAPad", args, 1) => {
+                        let value = lookup_in_map_required(args[0], &SMD_PAD_MAP)?.clone();
+                        ApertureFunction::BgaPad(value)
+                    }
+                    ("ConnectorPad", _, 0) => ApertureFunction::ConnectorPad,
+                    ("HeatsinkPad", _, 0) => ApertureFunction::HeatsinkPad,
+                    ("ViaPad", _, 0) => ApertureFunction::ViaPad,
+                    ("TestPad", _, 0) => ApertureFunction::TestPad,
+                    ("CastellatedPad", _, 0) => ApertureFunction::CastellatedPad,
+                    ("FiducialPad", args, 1) => match args[0] {
+                        "Local" => ApertureFunction::FiducialPad(FiducialScope::Local),
+                        "Global" => ApertureFunction::FiducialPad(FiducialScope::Global),
+                        "Panel" => ApertureFunction::FiducialPad(FiducialScope::Panel),
                         _ => {
                             return Err(UnsupportedApertureAttribute {
                                 aperture_attribute: raw_line,
                             })
                         }
                     },
-                ))
-                .into(),
-            )
+                    ("ThermalReliefPad", _, 0) => ApertureFunction::ThermalReliefPad,
+                    ("WasherPad", _, 0) => ApertureFunction::WasherPad,
+                    ("AntiPad", _, 0) => ApertureFunction::AntiPad,
+                    ("OtherPad", args, 1) => ApertureFunction::OtherPad(args[0].to_string()),
+                    ("Conductor", _, 0) => ApertureFunction::Conductor,
+                    ("EtchedComponent", _, 0) => ApertureFunction::EtchedComponent,
+                    ("NonConductor", _, 0) => ApertureFunction::NonConductor,
+                    ("CopperBalancing", _, 0) => ApertureFunction::CopperBalancing,
+                    ("Border", _, 0) => ApertureFunction::Border,
+                    ("OtherCopper", args, 1) => ApertureFunction::OtherCopper(args[0].to_string()),
+
+                    // "Component layers"
+                    ("ComponentMain", _, 0) => ApertureFunction::ComponentMain,
+                    ("ComponentOutline", args, 1) => {
+                        let value =
+                            lookup_in_map_required(args[0], &COMPONENT_OUTLINE_MAP)?.clone();
+                        ApertureFunction::ComponentOutline(value)
+                    }
+                    ("ComponentPin", _, 0) => ApertureFunction::ComponentPin,
+
+                    // "All data layers"
+                    ("Profile", _, 0) => ApertureFunction::Profile,
+                    ("NonMaterial", _, 0) => ApertureFunction::NonMaterial,
+                    ("Material", _, 0) => ApertureFunction::Material,
+                    ("Other", args, 1) => ApertureFunction::Other(args[0].to_string()),
+
+                    // "Deprecated" (not in 2024.05 - 5.6.10 ".AperFunction")
+                    ("Slot", _, 0) => ApertureFunction::Slot,
+                    ("CutOut", _, 0) => ApertureFunction::CutOut,
+                    ("Cavity", _, 0) => ApertureFunction::Cavity,
+                    ("Drawing", _, 0) => ApertureFunction::Drawing,
+                    _ => {
+                        return Err(UnsupportedApertureAttribute {
+                            aperture_attribute: raw_line,
+                        })
+                    }
+                },
+            ))
         }
-        (".DrillTolerance", args, 2) => Ok(ExtendedCode::ApertureAttribute(
-            ApertureAttribute::DrillTolerance {
-                plus: args[0].parse::<f64>().map_err(|_| {
-                    ContentError::DrillToleranceParseNumError {
-                        number_str: args[0].to_string(),
-                    }
-                })?,
-                minus: args[1].parse::<f64>().map_err(|_| {
-                    ContentError::DrillToleranceParseNumError {
-                        number_str: args[1].to_string(),
-                    }
-                })?,
-            },
-        )
-        .into()),
-        (arg, args, _) => Ok(
-            ExtendedCode::ApertureAttribute(ApertureAttribute::UserDefined {
-                name: arg.to_string(),
-                values: args.iter().map(|v| v.to_string()).collect(),
-            })
-            .into(),
-        ),
+        (".DrillTolerance", args, 2) => Ok(ApertureAttribute::DrillTolerance {
+            plus: args[0].parse::<f64>().map_err(|_| {
+                ContentError::DrillToleranceParseNumError {
+                    number_str: args[0].to_string(),
+                }
+            })?,
+            minus: args[1].parse::<f64>().map_err(|_| {
+                ContentError::DrillToleranceParseNumError {
+                    number_str: args[1].to_string(),
+                }
+            })?,
+        }),
+        (arg, args, _) => Ok(ApertureAttribute::UserDefined {
+            name: arg.to_string(),
+            values: args.iter().map(|v| v.to_string()).collect(),
+        }),
     }
 }
 
 /// Parse an Object Attribute (%TO.<AttributeName>[,<AttributeValue>]*%) into Command
+///
 /// ⚠️ This parsing statement needs a lot of tests and validation at the current stage!
-fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
+fn parse_object_attribute(line: Chars) -> Result<ObjectAttribute, ContentError> {
     macro_rules! parse_cc_decimal {
         ($cc:ident, $value:expr) => {{
             let decimal = $value
                 .parse::<f64>()
                 .map_err(|cause| ContentError::ParseDecimalError { cause })?;
-            Ok(
-                ExtendedCode::ObjectAttribute(ObjectAttribute::ComponentCharacteristics(
-                    ComponentCharacteristics::$cc(decimal),
-                ))
-                .into(),
-            )
+            Ok(ObjectAttribute::ComponentCharacteristics(
+                ComponentCharacteristics::$cc(decimal),
+            ))
         }};
     }
     macro_rules! parse_cc_string {
         ($cc:ident, $value:expr) => {{
-            Ok(
-                ExtendedCode::ObjectAttribute(ObjectAttribute::ComponentCharacteristics(
-                    ComponentCharacteristics::$cc($value.to_string()),
-                ))
-                .into(),
-            )
+            Ok(ObjectAttribute::ComponentCharacteristics(
+                ComponentCharacteristics::$cc($value.to_string()),
+            ))
         }};
     }
 
-    let line = trim_attr_line(line)?;
     let attr_args = attr_args(line);
 
     log::trace!("TO ARGS: {:?}", attr_args);
@@ -2115,41 +2125,29 @@ fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
                 // tooling holes, text, logos, pads for component leads not connected to the component
                 // circuitry
                 // ```
-                Ok(ExtendedCode::ObjectAttribute(ObjectAttribute::Net(Net::None)).into())
+                Ok(ObjectAttribute::Net(Net::None))
             } else {
                 if first.eq(&"N/C") {
                     // ```
                     // The name N/C, defined by %TO.N,N/C*%, identifies a single pad net, as an alternative to
                     // giving each such net a unique name. (N/C stands for not-connected.)
                     // ```
-                    Ok(
-                        ExtendedCode::ObjectAttribute(ObjectAttribute::Net(Net::NotConnected))
-                            .into(),
-                    )
+                    Ok(ObjectAttribute::Net(Net::NotConnected))
                 } else {
                     let names = args
                         .iter()
                         .map(ToString::to_string)
                         .collect::<Vec<String>>();
-                    Ok(
-                        ExtendedCode::ObjectAttribute(ObjectAttribute::Net(Net::Connected(names)))
-                            .into(),
-                    )
+                    Ok(ObjectAttribute::Net(Net::Connected(names)))
                 }
             }
         }
-        (".P", args, len) if len <= 3 => {
-            Ok(ExtendedCode::ObjectAttribute(ObjectAttribute::Pin(Pin {
-                refdes: args[0].to_string(),
-                name: args[1].to_string(),
-                function: args.get(2).map(ToString::to_string),
-            }))
-            .into())
-        }
-        (".C", args, 1) => Ok(ExtendedCode::ObjectAttribute(ObjectAttribute::Component(
-            args[0].to_string(),
-        ))
-        .into()),
+        (".P", args, len) if len <= 3 => Ok(ObjectAttribute::Pin(Pin {
+            refdes: args[0].to_string(),
+            name: args[1].to_string(),
+            function: args.get(2).map(ToString::to_string),
+        })),
+        (".C", args, 1) => Ok(ObjectAttribute::Component(args[0].to_string())),
         (".CRot", args, 1) => parse_cc_decimal!(Rotation, args[0]),
         (".CMfr", args, 1) => parse_cc_string!(Manufacturer, args[0]),
         (".CMPN", args, 1) => parse_cc_string!(MPN, args[0]),
@@ -2165,10 +2163,9 @@ fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
                 }),
             };
             component_mounting.map(|component_mounting| {
-                ExtendedCode::ObjectAttribute(ObjectAttribute::ComponentCharacteristics(
-                    ComponentCharacteristics::Mount(component_mounting),
+                ObjectAttribute::ComponentCharacteristics(ComponentCharacteristics::Mount(
+                    component_mounting,
                 ))
-                .into()
             })
         }
         (".CFtp", args, 1) => parse_cc_string!(Footprint, args[0]),
@@ -2177,11 +2174,10 @@ fn parse_object_attribute(line: Chars) -> Result<Command, ContentError> {
         (".CHgt", args, 1) => parse_cc_decimal!(Height, args[0]),
         (".CLbN", args, 1) => parse_cc_string!(LibraryName, args[0]),
         (".CLbD", args, 1) => parse_cc_string!(LibraryDescription, args[0]),
-        (arg, args, _) => Ok(ExtendedCode::ObjectAttribute(ObjectAttribute::UserDefined {
+        (arg, args, _) => Ok(ObjectAttribute::UserDefined {
             name: arg.to_string(),
             values: args.iter().map(|v| v.to_string()).collect(),
-        })
-        .into()),
+        }),
     }
 }
 

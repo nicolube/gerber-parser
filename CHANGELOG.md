@@ -11,6 +11,12 @@ Possible log types:
 - `[fixed]` for any bug fixes.
 - `[security]` to invite users to upgrade in case of vulnerabilities.
 
+### v0.3.0 (2025-07-11)
+
+- [added] Proper support for legacy/deprecated gerber command: `IN`.
+- [added] Support for G04 comment attributes.
+  This is a breaking change, since comments are now wrapped in `CommentContent`.
+
 ### v0.2.1 (2025-07-10)
 
 - [added] Support for legacy/deprecated gerber commands: `IP`, `MI`, `SF`, `OF`, `IR`, and `AS`.

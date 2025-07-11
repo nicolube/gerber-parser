@@ -41,7 +41,7 @@ The gerber specification 2024.05 is the latest version of the Gerber file format
 | ✅         | Delete attribute (TD)                          |                                                 |
 | ✅         | Standard attributes                            | Full support, including .N, .P, .C, .CXxxx, etc |
 | ✅         | User defined attributes                        |                                                 |
-| ❌         | Comment attributes                             | See spec 2024.5 - 5.1.1, 'G04 #@! ...*          |
+| ✅         | Comment attributes                             | See spec 2024.5 - 5.1.1, 'G04 #@! ...*          |
 | ✅         | Image Transformations (IP, MI, SF, OF, IR, AS) | Yes, see below for details                      |
 | ✅         | Legacy/deprecated attributes                   | Partial                                         |
 

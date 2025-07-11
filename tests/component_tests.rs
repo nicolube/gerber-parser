@@ -1,16 +1,17 @@
 use gerber_parser::{parse, ContentError, GerberParserErrorWithContext};
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureBlock, ApertureDefinition, ApertureFunction,
-    ApertureMacro, AxisSelect, Circle, CirclePrimitive, Command, ComponentCharacteristics,
-    ComponentDrill, ComponentMounting, ComponentOutline, CoordinateFormat, CoordinateOffset,
-    Coordinates, CopperType, DCode, DrillFunction, DrillRouteType, ExtendedCode, ExtendedPosition,
-    FiducialScope, FileAttribute, FileFunction, FilePolarity, FunctionCode, GCode,
-    GenerationSoftware, GerberDate, GerberError, IPC4761ViaProtection, Ident, ImageMirroring,
-    ImageOffset, ImagePolarity, ImageRotation, ImageScaling, InterpolationMode, MCode,
-    MacroBoolean, MacroContent, MacroDecimal, MacroInteger, Mirroring, Net, NonPlatedDrill,
-    ObjectAttribute, Operation, OutlinePrimitive, Part, Pin, PlatedDrill, Polarity, Polygon,
-    PolygonPrimitive, Position, Profile, QuadrantMode, Rectangular, Rotation, Scaling, SmdPadType,
-    StepAndRepeat, ThermalPrimitive, Unit, Uuid, VariableDefinition, VectorLinePrimitive,
+    ApertureMacro, AxisSelect, Circle, CirclePrimitive, Command, CommentContent,
+    ComponentCharacteristics, ComponentDrill, ComponentMounting, ComponentOutline,
+    CoordinateFormat, CoordinateOffset, Coordinates, CopperType, DCode, DrillFunction,
+    DrillRouteType, ExtendedCode, ExtendedPosition, FiducialScope, FileAttribute, FileFunction,
+    FilePolarity, FunctionCode, GCode, GenerationSoftware, GerberDate, GerberError,
+    IPC4761ViaProtection, Ident, ImageMirroring, ImageOffset, ImagePolarity, ImageRotation,
+    ImageScaling, InterpolationMode, MCode, MacroBoolean, MacroContent, MacroDecimal, MacroInteger,
+    Mirroring, Net, NonPlatedDrill, ObjectAttribute, Operation, OutlinePrimitive, Part, Pin,
+    PlatedDrill, Polarity, Polygon, PolygonPrimitive, Position, Profile, QuadrantMode, Rectangular,
+    Rotation, Scaling, SmdPadType, StandardComment, StepAndRepeat, ThermalPrimitive, Unit, Uuid,
+    VariableDefinition, VectorLinePrimitive,
 };
 use std::collections::HashMap;
 use strum::VariantArray;
@@ -215,10 +216,10 @@ fn G04_comments() {
         filtered_commands,
         vec![
             Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
-                "Comment before typical configuration lines".to_string(),
+                CommentContent::String("Comment before typical configuration lines".to_string(),)
             )))),
             Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
-                "And now a comment after them".to_string(),
+                CommentContent::String("And now a comment after them".to_string(),)
             )))),
         ]
     );
@@ -3398,6 +3399,92 @@ fn image_settings() {
                     b: 999.99999
                 }
             ))),
+        ]
+    );
+    assert!(!filtered_commands.is_empty());
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn G04_comment_attributes() {
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
+        r#"
+        %FSLAX66Y66*%
+        %MOMM*%
+
+        G04 Normal Comment*
+        
+        G04 #@! TA.AperFunction,SMDPad,CuDef*
+        G04 #@! TF.FileFunction,Profile,NP*
+        G04 #@! TO.C,R1*
+
+        G04 #@! TAExample,value1,value2*
+        G04 #@! TFExample,value1,value2*
+        G04 #@! TOExample,value1,value2*
+
+        M02*
+    "#,
+    );
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+            _
+        ))))
+    ));
+
+    // then
+    assert_eq_commands!(
+        &filtered_commands,
+        &vec![
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+                CommentContent::String("Normal Comment".to_string())
+            )))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+                CommentContent::Standard(StandardComment::ApertureAttribute(
+                    ApertureAttribute::ApertureFunction(ApertureFunction::SmdPad(
+                        SmdPadType::CopperDefined
+                    ))
+                ))
+            )))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+                CommentContent::Standard(StandardComment::FileAttribute(
+                    FileAttribute::FileFunction(FileFunction::Profile(Some(Profile::NonPlated)))
+                ))
+            )))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+                CommentContent::Standard(StandardComment::ObjectAttribute(
+                    ObjectAttribute::Component("R1".to_string())
+                ))
+            )))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+                CommentContent::Standard(StandardComment::ApertureAttribute(
+                    ApertureAttribute::UserDefined {
+                        name: "Example".to_string(),
+                        values: vec!["value1".to_string(), "value2".to_string()],
+                    }
+                ))
+            )))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+                CommentContent::Standard(StandardComment::FileAttribute(
+                    FileAttribute::UserDefined {
+                        name: "Example".to_string(),
+                        values: vec!["value1".to_string(), "value2".to_string()],
+                    }
+                ))
+            )))),
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+                CommentContent::Standard(StandardComment::ObjectAttribute(
+                    ObjectAttribute::UserDefined {
+                        name: "Example".to_string(),
+                        values: vec!["value1".to_string(), "value2".to_string()],
+                    }
+                ))
+            )))),
         ]
     );
     assert!(!filtered_commands.is_empty());
