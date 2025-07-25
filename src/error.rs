@@ -111,9 +111,9 @@ pub enum ContentError {
     #[error("Invalid macro definition. cause: '{0}'")]
     InvalidMacroDefinition(String),
     #[error(
-        "Missing aperture definition arguments. code: '{aperture_code}', name: '{aperture_name}"
+        "Incorrect aperture definition arguments count. code: '{aperture_code}', name: '{aperture_name}"
     )]
-    MissingApertureDefinitionArgs {
+    IncorrectDefinitionArgCount {
         aperture_code: i32,
         aperture_name: String,
     },

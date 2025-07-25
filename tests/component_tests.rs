@@ -3489,3 +3489,194 @@ fn G04_comment_attributes() {
     );
     assert!(!filtered_commands.is_empty());
 }
+
+/// Regression test to ensure that malformed aperture definitions don't cause a panic.
+#[test]
+fn malformed_aperture_definition() {
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader(
+        "
+    %FSLAX23Y23*%
+    %MOMM*%-
+
+
+    G04 Too many parameters *
+    %ADD10C,1X2X3*%
+    G04 Missing parameter *
+    %ADD10C*%
+
+    G04 Too many parameters *
+    %ADD10R,1X2X3X4*%
+    G04 Missing second parameter *
+    %ADD10R,1*%
+    G04 Missing both parameters *
+    %ADD10R*%
+
+    G04 Too many parameters *
+    %ADD10O,1X2X3X4*%
+    G04 Missing second parameter *
+    %ADD10O,1*%
+    G04 Missing both parameters *
+    %ADD10O*%
+
+    G04 Too many parameters *
+    %ADD10P,1X2X3X4X5*%
+    G04 Missing second parameter *
+    %ADD10P,1*%
+    G04 Missing all parameters *
+    %ADD10P*%
+
+    G04 Example of an unknown aperture definition code *
+    %ADD10T*%
+    ",
+    );
+    let doc = parse(reader).unwrap();
+
+    // then
+    let errors = doc.into_errors();
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("C") && content.eq("%ADD10C,1X2X3*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("C") && content.eq("%ADD10C*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("R") && content.eq("%ADD10R,1X2X3X4*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("R") && content.eq("%ADD10R,1*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("R") && content.eq("%ADD10R*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("O") && content.eq("%ADD10O,1X2X3X4*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("O") && content.eq("%ADD10O,1*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("O") && content.eq("%ADD10O*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("P") && content.eq("%ADD10P,1X2X3X4X5*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("P") && content.eq("%ADD10P,1*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::IncorrectDefinitionArgCount {
+                aperture_code,
+                aperture_name,
+            },
+            line: Some((_line_number, content)),
+        } if *aperture_code == 10 && aperture_name.eq("P") && content.eq("%ADD10P*%")
+    ));
+
+    let (error, errors) = errors.split_first().unwrap();
+    println!("{:#?}", error);
+    assert!(matches!(error,
+        GerberParserErrorWithContext {
+            error: ContentError::UnknownApertureType {
+                type_str
+            },
+            line: Some((_line_number, content)),
+        } if type_str.eq("T") && content.eq("%ADD10T*%")
+    ));
+}

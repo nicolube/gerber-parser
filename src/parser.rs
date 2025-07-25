@@ -1335,10 +1335,14 @@ fn parse_aperture_defs(
         ));
     }
 
-    let aperture_args_split: Option<Vec<&str>> = aperture_args_str.map(|m| m.split('X').collect());
+    let aperture_args_split: Option<(Vec<&str>, usize)> = aperture_args_str.map(|m| {
+        let args: Vec<_> = m.split('X').collect();
+        let len = args.len();
+        (args, len)
+    });
 
     match (aperture_name, aperture_args_split) {
-        ("C", Some(args)) => Ok((
+        ("C", Some((args, count))) if (1..=2).contains(&count) => Ok((
             code,
             Aperture::Circle(Circle {
                 diameter: args[0].trim().parse::<f64>().map_err(|_| {
@@ -1346,7 +1350,7 @@ fn parse_aperture_defs(
                         aperture_code: code,
                     }
                 })?,
-                hole_diameter: if args.len() > 1 {
+                hole_diameter: if count > 1 {
                     Some(args[1].trim().parse::<f64>().map_err(|_| {
                         ContentError::ParseApertureDefinitionBodyError {
                             aperture_code: code,
@@ -1357,12 +1361,12 @@ fn parse_aperture_defs(
                 },
             }),
         )),
-        ("R", Some(args)) => Ok((
+        ("R", Some((args, count))) if (2..=3).contains(&count) => Ok((
             code,
             Aperture::Rectangle(Rectangular {
                 x: parse_coord::<f64>(args[0])?,
                 y: parse_coord::<f64>(args[1])?,
-                hole_diameter: if args.len() > 2 {
+                hole_diameter: if count > 2 {
                     Some(args[2].trim().parse::<f64>().map_err(|_| {
                         ContentError::ParseApertureDefinitionBodyError {
                             aperture_code: code,
@@ -1373,12 +1377,12 @@ fn parse_aperture_defs(
                 },
             }),
         )),
-        ("O", Some(args)) => Ok((
+        ("O", Some((args, count))) if (2..=3).contains(&count) => Ok((
             code,
             Aperture::Obround(Rectangular {
                 x: parse_coord::<f64>(args[0])?,
                 y: parse_coord::<f64>(args[1])?,
-                hole_diameter: if args.len() > 2 {
+                hole_diameter: if count > 2 {
                     Some(args[2].trim().parse::<f64>().map_err(|_| {
                         ContentError::ParseApertureDefinitionBodyError {
                             aperture_code: code,
@@ -1390,7 +1394,7 @@ fn parse_aperture_defs(
             }),
         )),
         // note that for polygon we HAVE TO specify rotation if we want to add a hole
-        ("P", Some(args)) => Ok((
+        ("P", Some((args, count))) if (2..=4).contains(&count) => Ok((
             code,
             Aperture::Polygon(Polygon {
                 diameter: args[0].trim().parse::<f64>().map_err(|_| {
@@ -1403,7 +1407,7 @@ fn parse_aperture_defs(
                         aperture_code: code,
                     }
                 })?,
-                rotation: if args.len() > 2 {
+                rotation: if count > 2 {
                     Some(args[2].trim().parse::<f64>().map_err(|_| {
                         ContentError::ParseApertureDefinitionBodyError {
                             aperture_code: code,
@@ -1412,7 +1416,7 @@ fn parse_aperture_defs(
                 } else {
                     None
                 },
-                hole_diameter: if args.len() > 3 {
+                hole_diameter: if count > 3 {
                     Some(args[3].trim().parse::<f64>().map_err(|_| {
                         ContentError::ParseApertureDefinitionBodyError {
                             aperture_code: code,
@@ -1423,8 +1427,9 @@ fn parse_aperture_defs(
                 },
             }),
         )),
-        (aperture_name, None) if ["C", "R", "O", "P"].contains(&aperture_name) => {
-            Err(ContentError::MissingApertureDefinitionArgs {
+        (aperture_name, _) if ["C", "R", "O", "P"].contains(&aperture_name) => {
+            // FUTURE this could be improved by also reporting the supported argument count range
+            Err(ContentError::IncorrectDefinitionArgCount {
                 aperture_code: code,
                 aperture_name: aperture_name.to_string(),
             })
