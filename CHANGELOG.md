@@ -11,6 +11,10 @@ Possible log types:
 - `[fixed]` for any bug fixes.
 - `[security]` to invite users to upgrade in case of vulnerabilities.
 
+### v0.3.1 (2025-07-25)
+
+- [fixed] Fixed panic when parsing aperture definitions with insufficient arguments.
+
 ### v0.3.0 (2025-07-11)
 
 - [added] Proper support for legacy/deprecated gerber command: `IN`.
