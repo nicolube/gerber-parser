@@ -4,12 +4,14 @@ use std::fmt::Formatter;
 use std::num::{ParseFloatError, ParseIntError};
 use thiserror::Error;
 
+#[non_exhaustive]
 #[derive(Error, Debug)]
 pub enum ParseError {
     #[error("IO Error parsing Gerber file: {0}")]
     IoError(String),
 }
 
+#[non_exhaustive]
 #[derive(Error, Debug)]
 pub enum ContentError {
     #[error("Document included a line that isn't valid.")]
