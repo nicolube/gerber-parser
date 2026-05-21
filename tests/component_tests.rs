@@ -663,6 +663,57 @@ fn outer_parse_error_is_recorded_with_context() {
     )));
 }
 
+/// Deprecated single-digit G-codes `G1`/`G2`/`G3` (gerber spec 8.3 style variations) must
+/// parse like `G01`/`G02`/`G03`, including the combined `G1X..Y..D1*` form that arms modal
+/// D01. `G3` must still not shadow the `G36`/`G37` region commands. As emitted by ViewMate.
+#[test]
+fn deprecated_single_digit_g_codes() {
+    // given
+    logging_init();
+
+    // A region drawn with single-digit `G1` + combined D01, then modal-D01 coordinate lines.
+    let reader = gerber_to_reader(
+        "%FSLAX25Y25*%%MOIN*%%ADD111C,0.03937*%D111*X0Y0D2*G36*G1X200Y100D1*X200Y200*X100Y200*G37*M02*",
+    );
+
+    // when
+    let doc = parse(reader).unwrap();
+
+    // then
+    assert!(
+        doc.errors().is_empty(),
+        "unexpected errors: {:?}",
+        doc.errors()
+    );
+    let ok_commands: Vec<_> = doc
+        .commands
+        .iter()
+        .filter_map(|c| c.as_ref().ok())
+        .collect();
+    // G36 open and G37 close survived the `G3` disambiguation.
+    assert!(ok_commands.iter().any(|c| matches!(
+        c,
+        Command::FunctionCode(FunctionCode::GCode(GCode::RegionMode(true)))
+    )));
+    assert!(ok_commands.iter().any(|c| matches!(
+        c,
+        Command::FunctionCode(FunctionCode::GCode(GCode::RegionMode(false)))
+    )));
+    // The explicit `G1...D1` plus two modal-D01 lines = three interpolations.
+    let interpolations = ok_commands
+        .iter()
+        .filter(|c| {
+            matches!(
+                c,
+                Command::FunctionCode(FunctionCode::DCode(DCode::Operation(
+                    Operation::Interpolate(..)
+                )))
+            )
+        })
+        .count();
+    assert_eq!(interpolations, 3);
+}
+
 /// Test the D01* statements (circular)
 #[test]
 #[allow(non_snake_case)]

@@ -305,6 +305,32 @@ pub fn parse<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, (GerberDoc, Par
     }
 }
 
+// Emit the interpolation-mode command, plus the operation it carries when the deprecated
+// combined form is used (e.g. `G01X..Y..D01*` or its single-digit `G1X..Y..D1*` variant,
+// gerber spec 8.3). `remaining_line` is the block after the G-code token.
+fn interpolation_mode_commands(
+    mode: InterpolationMode,
+    remaining_line: &str,
+    gerber_doc: &mut GerberDoc,
+    modal: ModalOperationMode,
+) -> Vec<Result<Command, ContentError>> {
+    // Sized for two: the combined form adds a second command, and these G-codes are the
+    // hot path in large flashed/region files.
+    let mut commands = Vec::with_capacity(2);
+    commands.push(Ok(
+        FunctionCode::GCode(GCode::InterpolationMode(mode)).into()
+    ));
+    // More than the trailing `*` means operation data follows on the same block.
+    if remaining_line.len() > 1 {
+        commands.push(parse_interpolate_move_or_flash(
+            remaining_line,
+            gerber_doc,
+            modal,
+        ));
+    }
+    commands
+}
+
 fn parse_line<T: Read>(
     line: &str,
     gerber_doc: &mut GerberDoc,
@@ -316,68 +342,59 @@ fn parse_line<T: Read>(
         // Safety: already explicitly checked that the line is not empty
         'G' => {
             match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                '0' => {
-                    let remaining_line = &line[3..];
-                    let using_deprecated_syntax = remaining_line.len() > 1;
-                    let mut commands = Vec::with_capacity(1);
-                    match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                        '1' => {
-                            // G01
-                            commands.push(Ok(FunctionCode::GCode(GCode::InterpolationMode(
-                                InterpolationMode::Linear,
-                            ))
-                            .into()));
-                            if using_deprecated_syntax {
-                                commands.push(parse_interpolate_move_or_flash(
-                                    remaining_line,
-                                    gerber_doc,
-                                    parser_context.modal_operation,
-                                ));
-                            }
-                        }
-                        '2' => {
-                            // G02
-                            commands.push(Ok(FunctionCode::GCode(GCode::InterpolationMode(
-                                InterpolationMode::ClockwiseCircular,
-                            ))
-                            .into()));
-                            if using_deprecated_syntax {
-                                commands.push(parse_interpolate_move_or_flash(
-                                    remaining_line,
-                                    gerber_doc,
-                                    parser_context.modal_operation,
-                                ));
-                            }
-                        }
-                        '3' => {
-                            // G03
-                            commands.push(Ok(FunctionCode::GCode(GCode::InterpolationMode(
-                                InterpolationMode::CounterclockwiseCircular,
-                            ))
-                            .into()));
-                            if using_deprecated_syntax {
-                                commands.push(parse_interpolate_move_or_flash(
-                                    remaining_line,
-                                    gerber_doc,
-                                    parser_context.modal_operation,
-                                ));
-                            }
-                        }
-                        '4' => {
-                            // G04
-                            commands.push(parse_comment(line, parser_context))
-                        }
-                        _ => commands.push(Err(ContentError::UnknownCommand {})),
-                    }
-                    Ok(commands)
-                }
-                '3' => Ok(vec![
-                    match linechars.next().ok_or(ContentError::UnknownCommand {})? {
-                        '6' => Ok(FunctionCode::GCode(GCode::RegionMode(true)).into()), // G36
-                        '7' => Ok(FunctionCode::GCode(GCode::RegionMode(false)).into()), // G37
-                        _ => Err(ContentError::UnknownCommand {}),
-                    },
-                ]),
+                '0' => match linechars.next().ok_or(ContentError::UnknownCommand {})? {
+                    '1' => Ok(interpolation_mode_commands(
+                        InterpolationMode::Linear,
+                        &line[3..],
+                        gerber_doc,
+                        parser_context.modal_operation,
+                    )),
+                    '2' => Ok(interpolation_mode_commands(
+                        InterpolationMode::ClockwiseCircular,
+                        &line[3..],
+                        gerber_doc,
+                        parser_context.modal_operation,
+                    )),
+                    '3' => Ok(interpolation_mode_commands(
+                        InterpolationMode::CounterclockwiseCircular,
+                        &line[3..],
+                        gerber_doc,
+                        parser_context.modal_operation,
+                    )),
+                    '4' => Ok(vec![parse_comment(line, parser_context)]),
+                    _ => Ok(vec![Err(ContentError::UnknownCommand {})]),
+                },
+                // Deprecated single-digit interpolation modes `G1`/`G2`/`G3` (gerber spec
+                // 8.3 style variations); ViewMate and others emit these instead of `G0n`.
+                '1' => Ok(interpolation_mode_commands(
+                    InterpolationMode::Linear,
+                    &line[2..],
+                    gerber_doc,
+                    parser_context.modal_operation,
+                )),
+                '2' => Ok(interpolation_mode_commands(
+                    InterpolationMode::ClockwiseCircular,
+                    &line[2..],
+                    gerber_doc,
+                    parser_context.modal_operation,
+                )),
+                // `G3` is ambiguous: the G36/G37 region commands, or deprecated single-digit
+                // `G3` (= G03). Peek the next char; `6`/`7` select a region, anything else is
+                // taken as G03 (matching how `G1`/`G01` tolerate trailing operation data).
+                '3' => match linechars.next() {
+                    Some('6') => Ok(vec![
+                        Ok(FunctionCode::GCode(GCode::RegionMode(true)).into()),
+                    ]),
+                    Some('7') => Ok(vec![Ok(
+                        FunctionCode::GCode(GCode::RegionMode(false)).into()
+                    )]),
+                    _ => Ok(interpolation_mode_commands(
+                        InterpolationMode::CounterclockwiseCircular,
+                        &line[2..],
+                        gerber_doc,
+                        parser_context.modal_operation,
+                    )),
+                },
                 '7' => Ok(vec![
                     match linechars.next().ok_or(ContentError::UnknownCommand {})? {
                         // the G74 command is technically part of the Deprecated commands
