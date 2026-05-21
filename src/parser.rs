@@ -1,5 +1,5 @@
 use crate::document::GerberDoc;
-use crate::error::ContentError;
+use crate::error::{ContentError, ErrorContext};
 use crate::gerber_types::{
     Aperture, ApertureAttribute, ApertureFunction, ApertureMacro, CenterLinePrimitive, Circle,
     CirclePrimitive, Command, CoordinateFormat, DCode, ExtendedCode, FiducialScope, FileAttribute,
@@ -78,13 +78,18 @@ enum ModalOperationMode {
     Interpolate,
 }
 
+// 1-based source line and column. Gerber treats newlines as insignificant, so this is
+// only carried for error reporting.
+#[derive(Copy, Clone)]
+struct SourcePos {
+    line: usize,
+    offset: usize,
+}
+
 struct ParserContext<T: Read> {
-    // Physical source line on which the most recently returned block started (1-based).
-    // Used only for error context; Gerber itself treats newlines as insignificant.
-    line_number: usize,
     bytes: Bytes<BufReader<T>>,
-    // Running count of newlines consumed so far.
-    current_line: usize,
+    // Position of the byte stream consumed so far.
+    current: SourcePos,
     aperture_attributes: HashMap<String, ApertureAttribute>,
     object_attributes: HashMap<String, ObjectAttribute>,
     modal_operation: ModalOperationMode,
@@ -93,26 +98,26 @@ struct ParserContext<T: Read> {
 impl<T: Read> ParserContext<T> {
     pub fn new(reader: BufReader<T>) -> ParserContext<T> {
         ParserContext {
-            line_number: 0,
             bytes: reader.bytes(),
-            current_line: 1,
+            current: SourcePos { line: 1, offset: 0 },
             aperture_attributes: HashMap::new(),
             object_attributes: HashMap::new(),
             modal_operation: ModalOperationMode::Undefined,
         }
     }
 
-    // Yield the next Gerber command block. Commands are delimited by the end-of-block
-    // char `*` (gerber spec 4.1), so a single physical line may hold many commands.
-    // Extended commands `%...%` may contain several `*`-terminated words and span many
-    // lines (e.g. an aperture macro), so the whole `%...%` span is one block. Outside
-    // such a span a newline also ends the block, isolating each physical line so stray
-    // junk errors on its own rather than merging into the next command. Whitespace
-    // inside a block is kept (attribute/comment text may contain spaces) but trimmed.
-    pub fn next(&mut self) -> Option<Result<String, ContentError>> {
+    // Yield the next Gerber command block together with the position where it starts.
+    // Commands are delimited by the end-of-block char `*` (gerber spec 4.1), so a single
+    // physical line may hold many commands. Extended commands `%...%` may contain several
+    // `*`-terminated words and span many lines (e.g. an aperture macro), so the whole
+    // `%...%` span is one block. Outside such a span a newline also ends the block,
+    // isolating each physical line so stray junk errors on its own rather than merging
+    // into the next command. Whitespace inside a block is kept (attribute/comment text may
+    // contain spaces) but trimmed.
+    pub fn next(&mut self) -> Option<Result<(String, SourcePos), ContentError>> {
         let mut buf: Vec<u8> = Vec::new();
         let mut in_extended = false;
-        let mut block_line: Option<usize> = None;
+        let mut block_start: Option<SourcePos> = None;
         // Skip whitespace that leads a block (or follows a newline within one).
         let mut skip_ws = true;
 
@@ -123,18 +128,20 @@ impl<T: Read> ParserContext<T> {
                 Some(Err(e)) => {
                     return Some(Err(ContentError::IoError(format!(
                         "IO error on line: {}, error: {}",
-                        self.current_line, e
+                        self.current.line, e
                     ))));
                 }
             };
+            self.current.offset += 1;
 
             if byte == b'\r' {
                 continue; // carriage returns are never significant
             }
 
             if byte == b'\n' {
-                self.current_line += 1;
-                // Trim trailing whitespace and skip whatever leads the next line.
+                self.current.line += 1;
+                self.current.offset = 0; // next byte is column 1
+                                         // Trim trailing whitespace and skip whatever leads the next line.
                 while buf.last().is_some_and(u8::is_ascii_whitespace) {
                     buf.pop();
                 }
@@ -152,8 +159,8 @@ impl<T: Read> ParserContext<T> {
             }
             skip_ws = false;
 
-            if block_line.is_none() {
-                block_line = Some(self.current_line);
+            if block_start.is_none() {
+                block_start = Some(self.current);
             }
 
             match byte {
@@ -182,13 +189,17 @@ impl<T: Read> ParserContext<T> {
             return None; // nothing left but trailing whitespace / EOF
         }
 
-        self.line_number = block_line.unwrap_or(self.current_line);
-        Some(String::from_utf8(buf).map_err(|e| {
-            ContentError::IoError(format!(
-                "Invalid UTF-8 on line: {}, error: {}",
-                self.line_number, e
-            ))
-        }))
+        let position = block_start.unwrap_or(self.current);
+        Some(
+            String::from_utf8(buf)
+                .map(|text| (text, position))
+                .map_err(|e| {
+                    ContentError::IoError(format!(
+                        "Invalid UTF-8 on line: {}, error: {}",
+                        position.line, e
+                    ))
+                }),
+        )
     }
 
     // Update the modal operation mode after a command was parsed (gerber spec 8.3).
@@ -230,10 +241,8 @@ pub fn parse<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, (GerberDoc, Par
             break;
         };
 
-        let line_number = parser_context.line_number;
-
-        let raw_line = match line_result {
-            Ok(line) => line,
+        let (raw_line, position) = match line_result {
+            Ok(block) => block,
             Err(ContentError::IoError(error)) => {
                 parse_error = Some(ParseError::IoError(error));
                 break;
@@ -242,12 +251,17 @@ pub fn parse<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, (GerberDoc, Par
         };
         let line = raw_line.trim();
 
-        // Show the line
-        log::trace!("Line: {}. Content: {:?}", line_number + 1, &line);
+        log::trace!("Line: {}. Content: {:?}", position.line, &line);
 
         if !line.is_empty() {
-            let line_results = parse_line(line, &mut gerber_doc, &mut parser_context);
-            for result in line_results.into_iter().flatten() {
+            // `parse_line` may bail with a single outer error before producing any command
+            // (e.g. a truncated command, or an IO error from the macro reader). Funnel that
+            // through the same loop so it gets line context instead of being dropped.
+            let line_results = match parse_line(line, &mut gerber_doc, &mut parser_context) {
+                Ok(results) => results,
+                Err(error) => vec![Err(error)],
+            };
+            for result in line_results {
                 let final_result = match result {
                     Ok(command) => {
                         log::trace!("Parsed command: {:?}", command);
@@ -260,8 +274,12 @@ pub fn parse<T: Read>(reader: BufReader<T>) -> Result<GerberDoc, (GerberDoc, Par
                         break;
                     }
                     Err(error_without_context) => {
-                        let contexted_error = error_without_context
-                            .to_with_context(Some((line_number, line.to_string())));
+                        let contexted_error =
+                            error_without_context.to_with_context(Some(ErrorContext {
+                                line: position.line,
+                                offset: position.offset,
+                                token: line.to_string(),
+                            }));
                         log::error!("Content error: {}", contexted_error);
                         Err(contexted_error)
                     }
@@ -964,8 +982,8 @@ fn parse_aperture_macro_definition<T: Read>(
         let Some(line_result) = parser_context.next() else {
             break;
         };
-        let line = line_result?.trim().to_string();
-        macro_content.push_str(&line);
+        let (block, _) = line_result?;
+        macro_content.push_str(block.trim());
     }
 
     // Extract the macro name from the AM command
