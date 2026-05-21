@@ -1,4 +1,4 @@
-use gerber_parser::{parse, ContentError, GerberParserErrorWithContext};
+use gerber_parser::{parse, ContentError, ErrorContext, GerberParserErrorWithContext};
 use gerber_types::{
     Aperture, ApertureAttribute, ApertureBlock, ApertureDefinition, ApertureFunction,
     ApertureMacro, AxisSelect, Circle, CirclePrimitive, Command, CommentContent,
@@ -617,6 +617,52 @@ fn commands_separated_by_block_terminator_on_one_line() {
     )
 }
 
+/// Error context reports the line, column offset, and failing token. With several commands
+/// packed onto one line, the offset is what pinpoints which one failed.
+#[test]
+fn error_context_reports_line_offset_and_token() {
+    // given
+    logging_init();
+
+    // `X100Y100*` at column 21 is invalid: no D01 in modal effect (gerber spec 8.3).
+    let reader = gerber_to_reader("%FSLAX23Y23*%%MOMM*%X100Y100*M02*");
+
+    // when
+    let doc = parse(reader).unwrap();
+
+    // then
+    assert!(matches!(
+        doc.errors().first().unwrap(),
+        GerberParserErrorWithContext {
+            error: ContentError::CoordinateDataWithoutOperationCode,
+            context: Some(ErrorContext { line, offset, token }),
+        } if *line == 1 && *offset == 21 && token.eq("X100Y100*")
+    ));
+}
+
+/// A truncated command makes `parse_line` bail before producing any command. That outer
+/// error must still be recorded with context, not silently dropped.
+#[test]
+fn outer_parse_error_is_recorded_with_context() {
+    // given
+    logging_init();
+
+    // A lone `G` is truncated: `parse_line` returns an outer Err before any command.
+    let reader = gerber_to_reader("%FSLAX23Y23*%\n%MOMM*%\nG\nM02*\n");
+
+    // when
+    let doc = parse(reader).unwrap();
+
+    // then
+    assert!(doc.errors().iter().any(|error| matches!(
+        error,
+        GerberParserErrorWithContext {
+            error: ContentError::UnknownCommand {},
+            context: Some(ErrorContext { line, token, .. }),
+        } if *line == 3 && token.eq("G")
+    )));
+}
+
 /// Test the D01* statements (circular)
 #[test]
 #[allow(non_snake_case)]
@@ -955,7 +1001,11 @@ fn test_load_scaling_zero() {
             error: ContentError::InvalidParameter {
                 parameter,
             },
-            line: Some((number, content)),
+            context: Some(ErrorContext {
+                line: number,
+                token: content,
+                ..
+            }),
         } if parameter.eq("0") && *number == 2 && content.eq("%LS0*%")
     ));
 }
@@ -2433,7 +2483,11 @@ fn coordinates_not_within_format() {
                 format,
                 cause: GerberError::CoordinateFormatError(_)
             },
-            line: Some((number, content)),
+            context: Some(ErrorContext {
+                line: number,
+                token: content,
+                ..
+            }),
         } if format.integer == 2 && format.decimal == 3 && *number == 8 && content.eq("X100000Y0D01*")
     ));
 }
@@ -3969,7 +4023,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("C") && content.eq("%ADD10C,1X2X3*%")
     ));
 
@@ -3981,7 +4035,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("C") && content.eq("%ADD10C*%")
     ));
 
@@ -3993,7 +4047,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("R") && content.eq("%ADD10R,1X2X3X4*%")
     ));
 
@@ -4005,7 +4059,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("R") && content.eq("%ADD10R,1*%")
     ));
 
@@ -4017,7 +4071,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("R") && content.eq("%ADD10R*%")
     ));
 
@@ -4029,7 +4083,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("O") && content.eq("%ADD10O,1X2X3X4*%")
     ));
 
@@ -4041,7 +4095,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("O") && content.eq("%ADD10O,1*%")
     ));
 
@@ -4053,7 +4107,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("O") && content.eq("%ADD10O*%")
     ));
 
@@ -4065,7 +4119,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("P") && content.eq("%ADD10P,1X2X3X4X5*%")
     ));
 
@@ -4077,7 +4131,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("P") && content.eq("%ADD10P,1*%")
     ));
 
@@ -4089,7 +4143,7 @@ fn malformed_aperture_definition() {
                 aperture_code,
                 aperture_name,
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if *aperture_code == 10 && aperture_name.eq("P") && content.eq("%ADD10P*%")
     ));
 
@@ -4100,7 +4154,7 @@ fn malformed_aperture_definition() {
             error: ContentError::UnknownApertureType {
                 type_str
             },
-            line: Some((_line_number, content)),
+            context: Some(ErrorContext { token: content, .. }),
         } if type_str.eq("T") && content.eq("%ADD10T*%")
     ));
 }
