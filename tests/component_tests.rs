@@ -568,6 +568,55 @@ fn deprecated_modal_d01_invalid_without_preceding_d01() {
     assert_eq!(filtered_commands.len(), 3)
 }
 
+/// Commands are delimited by the end-of-block char `*`, not by newlines (gerber spec 4.1):
+/// a file may pack the whole stream onto a single physical line. Each `*` must still be
+/// parsed as its own command, including modal D01 coordinate-only blocks.
+#[test]
+fn commands_separated_by_block_terminator_on_one_line() {
+    // given
+    logging_init();
+
+    // Header, aperture, and a modal-D01 run all on one line, separated only by `*`.
+    let reader = gerber_to_reader(
+        "%FSLAX23Y23*%%MOMM*%%ADD10C, 0.01*%D10*X700Y1000D01*X1200Y1000*X1200Y1300*M02*",
+    );
+
+    let fs = CoordinateFormat::new(ZeroOmission::Leading, CoordinateMode::Absolute, 2, 3);
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::DCode(
+            DCode::Operation(Operation::Interpolate(_, _))
+        )))
+    ));
+
+    // then
+    assert_eq_commands!(
+        filtered_commands,
+        vec![
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    coordinates_from_gerber(700, 1000, fs).unwrap(),
+                    None,
+                ))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    coordinates_from_gerber(1200, 1000, fs).unwrap(),
+                    None,
+                ))
+            ))),
+            Ok(Command::FunctionCode(FunctionCode::DCode(
+                DCode::Operation(Operation::Interpolate(
+                    coordinates_from_gerber(1200, 1300, fs).unwrap(),
+                    None,
+                ))
+            ))),
+        ]
+    )
+}
+
 /// Test the D01* statements (circular)
 #[test]
 #[allow(non_snake_case)]
@@ -2280,7 +2329,7 @@ fn missing_eof() {
     let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
-    %MOMM*%-
+    %MOMM*%
 
     G04 We should have a MO2 at the end, but what if we forget it?*      
     ",
@@ -3874,7 +3923,7 @@ fn malformed_aperture_definition() {
     let reader = gerber_to_reader(
         "
     %FSLAX23Y23*%
-    %MOMM*%-
+    %MOMM*%
 
 
     G04 Too many parameters *
