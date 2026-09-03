@@ -120,6 +120,10 @@ impl<T: Read> ParserContext<T> {
         let mut block_start: Option<SourcePos> = None;
         // Skip whitespace that leads a block (or follows a newline within one).
         let mut skip_ws = true;
+        // Whether the previous byte was an unescaped `\`, the string escape character
+        // (gerber spec 3.4.3). An escaped `*` or `%` is string content, not a delimiter;
+        // this only keeps such a byte from splitting the block, it does not decode escapes.
+        let mut escaped = false;
 
         loop {
             let byte = match self.bytes.next() {
@@ -146,8 +150,9 @@ impl<T: Read> ParserContext<T> {
                     buf.pop();
                 }
                 skip_ws = true;
-                // Inside a `%...%` span newlines are insignificant; elsewhere a newline
-                // ends the block, isolating each physical line (junk included).
+                escaped = false; // a lone `\` right before a newline isn't a valid escape
+                                 // Inside a `%...%` span newlines are insignificant; elsewhere a newline
+                                 // ends the block, isolating each physical line (junk included).
                 if !in_extended && !buf.is_empty() {
                     break;
                 }
@@ -163,20 +168,30 @@ impl<T: Read> ParserContext<T> {
                 block_start = Some(self.current);
             }
 
-            match byte {
-                b'%' if in_extended => {
-                    buf.push(byte);
-                    break; // end of extended `%...%` block
+            if escaped {
+                // The byte right after an unescaped `\` is always literal content.
+                escaped = false;
+                buf.push(byte);
+            } else {
+                match byte {
+                    b'\\' => {
+                        escaped = true;
+                        buf.push(byte);
+                    }
+                    b'%' if in_extended => {
+                        buf.push(byte);
+                        break; // end of extended `%...%` block
+                    }
+                    b'%' if buf.is_empty() => {
+                        in_extended = true;
+                        buf.push(byte); // start of extended `%...%` block
+                    }
+                    b'*' if !in_extended => {
+                        buf.push(byte);
+                        break; // end-of-block for a normal command
+                    }
+                    _ => buf.push(byte),
                 }
-                b'%' if buf.is_empty() => {
-                    in_extended = true;
-                    buf.push(byte); // start of extended `%...%` block
-                }
-                b'*' if !in_extended => {
-                    buf.push(byte);
-                    break; // end-of-block for a normal command
-                }
-                _ => buf.push(byte),
             }
         }
 
