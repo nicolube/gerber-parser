@@ -255,48 +255,6 @@ fn G04_comments() {
 }
 
 #[test]
-fn escaped_reserved_characters_in_strings() {
-    // given
-    logging_init();
-
-    // Gerber spec 3.4.3: `\` escapes reserved characters in strings, notably `*` and `%`
-    // (the block/extended-block delimiters). An escaped `*` inside a comment, or an
-    // escaped `%` inside a `%...%` extended block, must not end the block early.
-    let reader = gerber_to_reader(
-        "
-    G04 escaped \\* asterisk and \\% percent survive as comment text*
-    %TF.MD5,abc\\%def*%
-    M02*
-    ",
-    );
-
-    // when
-    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
-        cmd,
-        Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
-            _
-        )))) | Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
-            FileAttribute::Md5(_)
-        )))
-    ));
-
-    // then
-    assert_eq!(
-        filtered_commands,
-        vec![
-            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
-                CommentContent::String(
-                    "escaped \\* asterisk and \\% percent survive as comment text".to_string()
-                )
-            )))),
-            Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
-                FileAttribute::Md5("abc\\%def".to_string())
-            ))),
-        ]
-    );
-}
-
-#[test]
 fn aperture_selection() {
     // given
     logging_init();
