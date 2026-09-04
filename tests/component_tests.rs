@@ -255,6 +255,53 @@ fn G04_comments() {
 }
 
 #[test]
+fn unicode_escaped_reserved_characters_in_strings() {
+    // given
+    logging_init();
+
+    // Gerber spec 3.4.3: reserved characters in a string are written as a unicode escape,
+    // `\u002A` for `*` and `\u0025` for `%`, never as a raw byte (3.4.4 excludes them from the
+    // field grammar outright). A conforming string therefore cannot contain the block
+    // delimiters, and the parser keeps the escape sequence verbatim.
+    let reader = gerber_to_reader(
+        "
+    G04 escaped \\u002A asterisk and \\u0025 percent survive as comment text*
+    %TFMyEscapes,escaped comma \\u002C in a field*%
+    M02*
+    ",
+    );
+
+    // when
+    parse_and_filter!(reader, commands, filtered_commands, |cmd| matches!(
+        cmd,
+        Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+            _
+        )))) | Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::UserDefined { .. }
+        )))
+    ));
+
+    // then
+    assert_eq!(
+        filtered_commands,
+        vec![
+            Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
+                CommentContent::String(
+                    "escaped \\u002A asterisk and \\u0025 percent survive as comment text"
+                        .to_string()
+                )
+            )))),
+            Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+                FileAttribute::UserDefined {
+                    name: "MyEscapes".to_string(),
+                    values: vec!["escaped comma \\u002C in a field".to_string()],
+                }
+            ))),
+        ]
+    );
+}
+
+#[test]
 fn aperture_selection() {
     // given
     logging_init();
