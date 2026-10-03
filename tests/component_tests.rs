@@ -705,6 +705,27 @@ fn outer_parse_error_is_recorded_with_context() {
     )));
 }
 
+/// A `.GenerationSoftware` file attribute with fewer than the mandatory vendor and
+/// application values must not panic; it is kept as a user-defined attribute.
+#[test]
+fn generation_software_with_one_value_does_not_panic() {
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader("%FSLAX23Y23*%\n%MOMM*%\n%TF.GenerationSoftware,KiCad*%\nM02*\n");
+
+    // when
+    let doc = parse(reader).unwrap();
+
+    // then
+    assert!(doc.commands.iter().any(|c| matches!(
+        c,
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::UserDefined { name, .. }
+        ))) if name == ".GenerationSoftware"
+    )));
+}
+
 /// Deprecated single-digit G-codes `G1`/`G2`/`G3` (gerber spec 8.3 style variations) must
 /// parse like `G01`/`G02`/`G03`, including the combined `G1X..Y..D1*` form that arms modal
 /// D01. `G3` must still not shadow the `G36`/`G37` region commands. As emitted by ViewMate.
