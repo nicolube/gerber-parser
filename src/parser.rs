@@ -2061,7 +2061,10 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
             args.first().map(|value| parse_ident(value)).transpose()?,
         )),
         (".CreationDate", args, 1) => Ok(FileAttribute::CreationDate(parse_date_time(args[0])?)),
-        (".GenerationSoftware", args, len) if len <= 3 => {
+        // Vendor and application are mandatory; anything shorter falls
+        // through to a user-defined attribute instead of indexing past the
+        // arguments.
+        (".GenerationSoftware", args, len) if (2..=3).contains(&len) => {
             Ok(FileAttribute::GenerationSoftware(GenerationSoftware {
                 vendor: args[0].to_string(),
                 application: args[1].to_string(),

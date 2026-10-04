@@ -4256,3 +4256,24 @@ fn malformed_aperture_definition() {
         } if type_str.eq("T") && content.eq("%ADD10T*%")
     ));
 }
+
+/// A `.GenerationSoftware` file attribute with fewer than the mandatory vendor and
+/// application values must not panic; it is kept as a user-defined attribute.
+#[test]
+fn generation_software_with_one_value_does_not_panic() {
+    // given
+    logging_init();
+
+    let reader = gerber_to_reader("%FSLAX23Y23*%\n%MOMM*%\n%TF.GenerationSoftware,KiCad*%\nM02*\n");
+
+    // when
+    let doc = parse(reader).unwrap();
+
+    // then
+    assert!(doc.commands.iter().any(|c| matches!(
+        c,
+        Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
+            FileAttribute::UserDefined { name, .. }
+        ))) if name == ".GenerationSoftware"
+    )));
+}
