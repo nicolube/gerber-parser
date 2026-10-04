@@ -29,19 +29,30 @@ pub fn gerber_doc_as_str(gerber_doc: &GerberDoc) -> String {
     str::from_utf8(&filevec).unwrap().to_string()
 }
 
+/// Converts a raw Gerber integer in format `fs` to the nano (6-decimal)
+/// precision `CoordinateNumber` uses, rejecting formats with more than 6
+/// decimals and values that overflow instead of panicking.
+fn to_nano(value: i64, fs: &CoordinateFormat) -> Result<CoordinateNumber, GerberError> {
+    let factor = 6u8.checked_sub(fs.decimal).ok_or_else(|| {
+        GerberError::CoordinateFormatError(format!(
+            "{} decimal places are more than the supported 6",
+            fs.decimal
+        ))
+    })?;
+    let nano = value
+        .checked_mul(10i64.pow(factor as u32))
+        .ok_or_else(|| GerberError::RangeError(format!("coordinate {value} is too large")))?;
+    CoordinateNumber::new(nano).validate(fs)
+}
+
 pub fn coordinates_from_gerber(
-    mut x_as_int: i64,
-    mut y_as_int: i64,
+    x_as_int: i64,
+    y_as_int: i64,
     fs: CoordinateFormat,
 ) -> Result<Option<Coordinates>, GerberError> {
-    // we have the raw gerber string as int but now have to convert it to nano precision format
-    // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
-    let factor = (6u8 - fs.decimal) as u32;
-    x_as_int *= 10i64.pow(factor);
-    y_as_int *= 10i64.pow(factor);
     Ok(Some(Coordinates::new(
-        CoordinateNumber::new(x_as_int).validate(&fs)?,
-        CoordinateNumber::new(y_as_int).validate(&fs)?,
+        to_nano(x_as_int, &fs)?,
+        to_nano(y_as_int, &fs)?,
         fs,
     )))
 }
@@ -51,15 +62,8 @@ pub fn partial_coordinates_from_gerber(
     y_as_int: Option<i64>,
     fs: CoordinateFormat,
 ) -> Result<Option<Coordinates>, GerberError> {
-    // we have the raw gerber string as int but now have to convert it to nano precision format
-    // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
-    let factor = (6u8 - fs.decimal) as u32;
-    let x = x_as_int
-        .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
-        .transpose()?;
-    let y = y_as_int
-        .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
-        .transpose()?;
+    let x = x_as_int.map(|value| to_nano(value, &fs)).transpose()?;
+    let y = y_as_int.map(|value| to_nano(value, &fs)).transpose()?;
 
     let coordinates = match (x, y) {
         (None, None) => None,
@@ -73,15 +77,8 @@ pub fn partial_coordinates_offset_from_gerber(
     y_as_int: Option<i64>,
     fs: CoordinateFormat,
 ) -> Result<Option<CoordinateOffset>, GerberError> {
-    // we have the raw gerber string as int but now have to convert it to nano precision format
-    // (i.e. 6 decimal precision) as this is what CoordinateNumber uses internally
-    let factor = (6u8 - fs.decimal) as u32;
-    let x = x_as_int
-        .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
-        .transpose()?;
-    let y = y_as_int
-        .map(|value| CoordinateNumber::new(value * 10i64.pow(factor)).validate(&fs))
-        .transpose()?;
+    let x = x_as_int.map(|value| to_nano(value, &fs)).transpose()?;
+    let y = y_as_int.map(|value| to_nano(value, &fs)).transpose()?;
 
     let coordinate_offset = match (x, y) {
         (None, None) => None,
