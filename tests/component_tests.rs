@@ -4055,3 +4055,22 @@ fn malformed_aperture_definition() {
         } if type_str.eq("T") && content.eq("%ADD10T*%")
     ));
 }
+
+/// More than 6 decimal places, or a coordinate too large for nano precision, is an
+/// error on that command, not a panic.
+#[test]
+fn oversized_coordinate_formats_do_not_panic() {
+    // given
+    logging_init();
+
+    for gerber in [
+        "%FSLAX27Y27*%\n%MOMM*%\nX1Y1D02*\nM02*\n",
+        "%FSLAX46Y46*%\n%MOMM*%\nX999999999999999999Y1D02*\nM02*\n",
+    ] {
+        // when
+        let doc = parse(gerber_to_reader(gerber)).unwrap();
+
+        // then
+        assert!(doc.commands.iter().any(Result::is_err), "{gerber}");
+    }
+}
