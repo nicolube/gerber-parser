@@ -74,3 +74,28 @@ fn a_drill_file_to_rust_and_back() {
         doc.commands
     )
 }
+
+/// Gerber spec 3.4.3 and 3.4.4: the reserved characters `*` (`*`), `%` (`%`),
+/// `\` (`\`) and, in fields, `,` (`,`) are expressed as unicode escapes and never
+/// as raw bytes, so they cannot be confused with the block delimiters. Escape sequences are
+/// kept verbatim by the parser, which is what makes the round-trip byte-exact.
+#[test]
+fn escaped_strings_to_rust() {
+    let gbr_string = include_str!("../assets/reference_files/escaped_strings.gbr");
+    let reader = gerber_to_reader(gbr_string);
+    parse(reader).unwrap();
+}
+
+#[test]
+fn escaped_strings_to_rust_and_back() {
+    let gbr_string = include_str!("../assets/reference_files/escaped_strings.gbr");
+    let reader = gerber_to_reader(gbr_string);
+    let doc = parse(reader).unwrap();
+
+    assert_eq!(
+        gerber_doc_as_str(&doc),
+        gbr_string,
+        "unexpected differences, commands: {:?}",
+        doc.commands
+    )
+}
