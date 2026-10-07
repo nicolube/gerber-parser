@@ -904,7 +904,8 @@ fn parse_comment<T: Read>(
         Some(regmatch) => {
             let string_content = regmatch
                 .name("string")
-                .map(|string| string.as_str().to_string());
+                .map(|string| decode_unicode_escapes(string.as_str()))
+                .transpose()?;
 
             let standard_content = regmatch
                 .name("standard")
@@ -977,7 +978,7 @@ fn parse_image_name(line: &str, gerber_doc: &GerberDoc) -> Result<String, Conten
                         capture_index: 1,
                     })?
                     .as_str();
-                Ok(String::from(image_name))
+                decode_unicode_escapes(image_name)
             }
             None => Err(ContentError::NoRegexMatch {
                 regex: RE_IMAGE_NAME.clone(),
@@ -1035,7 +1036,9 @@ fn parse_aperture_macro_definition<T: Read>(
 
             // Gerber spec: 4.5.1.2 "The comment primitive starts with the ‘0’ code followed by a space and then a
             // single-line text string"
-            content.push(MacroContent::Comment(stripped.trim().to_string()));
+            content.push(MacroContent::Comment(decode_unicode_escapes(
+                stripped.trim(),
+            )?));
             continue;
         }
 
@@ -1933,7 +1936,8 @@ fn parse_file_attribute(line: Chars) -> Result<FileAttribute, ContentError> {
         };
     }
 
-    let attr_args = attr_args(line);
+    let decoded_args = attr_args(line)?;
+    let attr_args: Vec<&str> = decoded_args.iter().map(String::as_str).collect();
 
     log::trace!("TF args: {:?}, len: {}", attr_args, attr_args.len());
 
@@ -2236,7 +2240,8 @@ fn parse_aperture_attribute(
     }
 
     let raw_line = partial_line.as_str().to_string();
-    let attr_args = attr_args(partial_line);
+    let decoded_args = attr_args(partial_line)?;
+    let attr_args: Vec<&str> = decoded_args.iter().map(String::as_str).collect();
 
     log::trace!("TA ARGS: {:?}", attr_args);
 
@@ -2372,7 +2377,8 @@ fn parse_object_attribute(partial_line: Chars) -> Result<(String, ObjectAttribut
         }};
     }
 
-    let attr_args = attr_args(partial_line);
+    let decoded_args = attr_args(partial_line)?;
+    let attr_args: Vec<&str> = decoded_args.iter().map(String::as_str).collect();
 
     log::trace!("TO ARGS: {:?}", attr_args);
 
@@ -2589,11 +2595,50 @@ fn parse_macro_integer(value: &str) -> Result<MacroInteger, ContentError> {
     }
 }
 
-fn attr_args(partial_line: Chars<'_>) -> Vec<&str> {
+// Decode only after tokenizing commands and splitting fields. Decoded delimiters are
+// text, and a decoded backslash must never start a second round of decoding.
+fn decode_unicode_escapes(value: &str) -> Result<String, ContentError> {
+    let mut decoded = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    let invalid = || ContentError::InvalidUnicodeEscape {
+        value: value.to_string(),
+    };
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            decoded.push(ch);
+            continue;
+        }
+        let digits = match chars.next() {
+            Some('u') => 4,
+            Some('U') => 8,
+            _ => return Err(invalid()),
+        };
+        let mut codepoint = 0u32;
+        for _ in 0..digits {
+            let digit = chars
+                .next()
+                .and_then(|ch| ch.to_digit(16))
+                .ok_or_else(invalid)?;
+            codepoint = (codepoint << 4) | digit;
+        }
+        decoded.push(char::from_u32(codepoint).ok_or_else(invalid)?);
+    }
+    Ok(decoded)
+}
+
+fn attr_args(partial_line: Chars<'_>) -> Result<Vec<String>, ContentError> {
     partial_line
         .as_str()
         .split(',')
-        .map(|el| el.trim())
+        .enumerate()
+        .map(|(index, el)| {
+            // Attribute names use the ASCII name grammar, not the string grammar.
+            if index == 0 {
+                Ok(el.trim().to_string())
+            } else {
+                decode_unicode_escapes(el.trim())
+            }
+        })
         .collect()
 }
 
@@ -2613,9 +2658,34 @@ mod attr_args_tests {
     use super::*;
 
     #[test]
+    fn unicode_escapes_follow_spec_3_4_3() {
+        for (encoded, expected) in [
+            (r"\u00A9", "©"),
+            (r"\U000000a9", "©"),
+            (r"\u0025\u002A\u005C\u002C", "%*\\,"),
+            (r"\u0041B", "AB"),
+            (r"\U00000041B", "AB"),
+            (r"\U0010FFFF", "\u{10ffff}"),
+            (r"\u0000", "\0"),
+            (r"\u005Cu00A9", r"\u00A9"),
+            ("日本語", "日本語"),
+        ] {
+            assert_eq!(decode_unicode_escapes(encoded).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn attribute_names_are_not_string_fields() {
+        let args = attr_args(r"Custom,\u0041,\u002C".chars()).unwrap();
+        assert_eq!(args, ["Custom", "A", ","]);
+        let args = attr_args(r"\u0043ustom,\u0041".chars()).unwrap();
+        assert_eq!(args[0], r"\u0043ustom");
+    }
+
+    #[test]
     pub fn test_attr_args() {
         let attribute_chars = "  .DrillTolerance  , 0.02  , 0.01   ".chars();
-        let arguments = attr_args(attribute_chars);
+        let arguments = attr_args(attribute_chars).unwrap();
         println!("arguments: {:?}", arguments);
         assert_eq!(arguments, vec![".DrillTolerance", "0.02", "0.01"])
     }

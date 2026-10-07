@@ -262,7 +262,7 @@ fn unicode_escaped_reserved_characters_in_strings() {
     // Gerber spec 3.4.3: reserved characters in a string are written as a unicode escape,
     // `\u002A` for `*` and `\u0025` for `%`, never as a raw byte (3.4.4 excludes them from the
     // field grammar outright). A conforming string therefore cannot contain the block
-    // delimiters, and the parser keeps the escape sequence verbatim.
+    // delimiters. The parser decodes escapes only after splitting commands and fields.
     let reader = gerber_to_reader(
         "
     G04 escaped \\u002A asterisk and \\u0025 percent survive as comment text*
@@ -287,14 +287,13 @@ fn unicode_escaped_reserved_characters_in_strings() {
         vec![
             Ok(Command::FunctionCode(FunctionCode::GCode(GCode::Comment(
                 CommentContent::String(
-                    "escaped \\u002A asterisk and \\u0025 percent survive as comment text"
-                        .to_string()
+                    "escaped * asterisk and % percent survive as comment text".to_string()
                 )
             )))),
             Ok(Command::ExtendedCode(ExtendedCode::FileAttribute(
                 FileAttribute::UserDefined {
                     name: "MyEscapes".to_string(),
-                    values: vec!["escaped comma \\u002C in a field".to_string()],
+                    values: vec!["escaped comma , in a field".to_string()],
                 }
             ))),
         ]
@@ -991,7 +990,7 @@ fn omitted_coordinate() {
     // Compare the two results nanos
     for (i, cmd) in filtered_commands.iter().enumerate() {
         let cmd2 = &filtered_commands2[i];
-        match { (cmd, cmd2) } {
+        match (cmd, cmd2) {
             (
                 Ok(Command::FunctionCode(FunctionCode::DCode(DCode::Operation(Operation::Flash(
                     Some(c1),
@@ -4294,5 +4293,87 @@ fn oversized_coordinate_formats_do_not_panic() {
 
         // then
         assert!(doc.commands.iter().any(Result::is_err), "{gerber}");
+    }
+}
+
+#[test]
+fn unicode_escape_decoding_across_string_fields() {
+    let input = r"G04 café \u00a9 \U0001F680 \u005Cu002A*
+%TFCustom,\u0020hello\u0020,\u002C\u002A\u0025*%
+%TALabel,\u03A9*%
+%TO.C,R\u0031*%
+G04 #@! TFNote,\u65E5\u672C*
+%AMExample*0 \u00A9 \U0001F680*1,1,1,0,0*%
+M02*";
+    let doc = parse(gerber_to_reader(input)).unwrap();
+    let expected: Vec<Command> = vec![
+        GCode::Comment(CommentContent::String("café © 🚀 \\u002A".into())).into(),
+        ExtendedCode::FileAttribute(FileAttribute::UserDefined {
+            name: "Custom".into(),
+            values: vec![" hello ".into(), ",*%".into()],
+        })
+        .into(),
+        ExtendedCode::ApertureAttribute(ApertureAttribute::UserDefined {
+            name: "Label".into(),
+            values: vec!["Ω".into()],
+        })
+        .into(),
+        ExtendedCode::ObjectAttribute(ObjectAttribute::Component("R1".into())).into(),
+        GCode::Comment(CommentContent::Standard(StandardComment::FileAttribute(
+            FileAttribute::UserDefined {
+                name: "Note".into(),
+                values: vec!["日本".into()],
+            },
+        )))
+        .into(),
+        ExtendedCode::ApertureMacro(ApertureMacro {
+            name: "Example".into(),
+            content: vec![
+                MacroContent::Comment("© 🚀".into()),
+                MacroContent::Circle(CirclePrimitive {
+                    exposure: MacroBoolean::Value(true),
+                    diameter: MacroDecimal::Value(1.0),
+                    center: (MacroDecimal::Value(0.0), MacroDecimal::Value(0.0)),
+                    angle: None,
+                }),
+            ],
+        })
+        .into(),
+        MCode::EndOfFile.into(),
+    ];
+    let actual: Vec<_> = doc.commands.into_iter().map(Result::unwrap).collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn invalid_unicode_escapes_report_context_and_continue() {
+    for escape in [
+        r"\u123",
+        r"\u12g4",
+        r"\U00110000",
+        r"\uD800",
+        r"\U0000DFFF",
+        r"\UFFFFFFFF",
+        r"\q",
+        "\\",
+        "\\u日000",
+    ] {
+        for token in [
+            format!("G04 {}*", escape),
+            format!("%TFCustom,{}*%", escape),
+        ] {
+            let input = format!("{}M02*", token);
+            let doc = parse(gerber_to_reader(&input)).unwrap();
+            let error = doc.commands[0].as_ref().unwrap_err();
+            assert!(matches!(
+                error.error,
+                ContentError::InvalidUnicodeEscape { .. }
+            ));
+            assert_eq!(error.context.as_ref().unwrap().token, token);
+            assert!(matches!(
+                doc.commands[1],
+                Ok(Command::FunctionCode(FunctionCode::MCode(MCode::EndOfFile)))
+            ));
+        }
     }
 }

@@ -14,6 +14,8 @@ pub enum ParseError {
 #[non_exhaustive]
 #[derive(Error, Debug)]
 pub enum ContentError {
+    #[error("Invalid Unicode escape in string: {value:?}")]
+    InvalidUnicodeEscape { value: String },
     #[error("Document included a line that isn't valid.")]
     UnknownCommand {},
     #[error("Document included a line that isn't supported.")]
