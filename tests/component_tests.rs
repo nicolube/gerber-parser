@@ -4361,6 +4361,11 @@ fn invalid_unicode_escapes_report_context_and_continue() {
         for token in [
             format!("G04 {}*", escape),
             format!("%TFCustom,{}*%", escape),
+            format!("%TACustom,{}*%", escape),
+            format!("%TOCustom,{}*%", escape),
+            format!("G04 #@! TFCustom,{}*", escape),
+            format!("%IN{}*%", escape),
+            format!("%AMExample*0 {}*1,1,1,0,0*%", escape),
         ] {
             let input = format!("{}M02*", token);
             let doc = parse(gerber_to_reader(&input)).unwrap();
@@ -4376,4 +4381,28 @@ fn invalid_unicode_escapes_report_context_and_continue() {
             ));
         }
     }
+}
+
+#[test]
+fn image_name_and_escaped_comment_marker_are_decoded_as_text() {
+    let input = r"%INBoard\u002A\U00000025\u005C\u002C\u00A9*%
+G04 \u0023@! TFCustom,value*
+M02*";
+    let doc = parse(gerber_to_reader(input)).unwrap();
+    assert_eq!(doc.image_name.as_deref(), Some("Board*%\\,©"));
+    let expected: Vec<Command> = vec![
+        ExtendedCode::ImageName(gerber_types::ImageName {
+            name: "Board*%\\,©".into(),
+        })
+        .into(),
+        GCode::Comment(CommentContent::String("#@! TFCustom,value".into())).into(),
+        MCode::EndOfFile.into(),
+    ];
+    assert_eq!(
+        doc.commands
+            .into_iter()
+            .map(Result::unwrap)
+            .collect::<Vec<_>>(),
+        expected
+    );
 }

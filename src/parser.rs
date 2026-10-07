@@ -2627,19 +2627,13 @@ fn decode_unicode_escapes(value: &str) -> Result<String, ContentError> {
 }
 
 fn attr_args(partial_line: Chars<'_>) -> Result<Vec<String>, ContentError> {
-    partial_line
-        .as_str()
-        .split(',')
-        .enumerate()
-        .map(|(index, el)| {
-            // Attribute names use the ASCII name grammar, not the string grammar.
-            if index == 0 {
-                Ok(el.trim().to_string())
-            } else {
-                decode_unicode_escapes(el.trim())
-            }
-        })
-        .collect()
+    let mut fields = partial_line.as_str().split(',');
+    // split always yields a first field; names use the ASCII name grammar.
+    let mut args = vec![fields.next().unwrap().trim().to_string()];
+    for field in fields {
+        args.push(decode_unicode_escapes(field.trim())?);
+    }
+    Ok(args)
 }
 
 fn trim_attr_line(mut partial_line: Chars) -> Result<Chars, ContentError> {
